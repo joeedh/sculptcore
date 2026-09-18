@@ -66,11 +66,14 @@ static void hookPolygroupDirty(BrushHookCtx &c)
 
 const BrushHooks *brushHooksFor(SculptBrushes tool)
 {
-  static const BrushHooks bsmooth = {hookBoundaryClassRefresh, nullptr, nullptr};
+  static const BrushHooks bsmooth = {
+      hookBoundaryClassRefresh, nullptr, nullptr, true, true};
   static const BrushHooks featureAlign = {
-      hookBoundaryClassRefresh, hookCrossFieldRegion, nullptr};
-  static const BrushHooks enhance = {nullptr, hookEnhanceRegion, nullptr};
-  static const BrushHooks polygroup = {nullptr, nullptr, hookPolygroupDirty};
+      hookBoundaryClassRefresh, hookCrossFieldRegion, nullptr, true, false, false, true};
+  static const BrushHooks enhance = {
+      nullptr, hookEnhanceRegion, nullptr, false, false, true};
+  static const BrushHooks polygroup = {
+      nullptr, nullptr, hookPolygroupDirty, false, false, false, true};
 
   switch (tool) {
   case SculptBrushes::BSMOOTH:

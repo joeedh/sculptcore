@@ -1,0 +1,18 @@
+@brush("preparedPreludeTest")
+brush PreparedPreludeTest {
+  uniform float prelude_gain = 0.5 @range(0.1, 0.9);
+  host void first() {
+    if ((prelude_gain) < (0.1)) { (prelude_gain) = (0.1); }
+  }
+  host void second() {
+    if (prelude_gain > 0.9) prelude_gain = 0.9;
+  }
+  reduce void prepare(out float a, out float b) {
+    float local = prelude_gain * 2.0;
+    a = local;
+    b = a / 2.0;
+  }
+  vertex void apply(inout Vertex v, in float a, in float b) {
+    v.co += float3(0.0, 0.0, a + b);
+  }
+}

@@ -30,9 +30,10 @@
  *    (optionally culling back faces). viewNormalFactor is a few flops, so
  *    CommandCtx::strength evaluates it fresh against each vertex's LIVE normal
  *    on every call, from ViewNormalParams resolved once per dab — no cache, no
- *    stamp ordering, no per-vertex ray history to go stale. Every symmetry
- *    image shares the SAME stroke-pinned camera ray: the mask is
- *    camera-relative and the camera doesn't mirror. (The original design
+ *    stamp ordering, no per-vertex ray history to go stale. Raw symmetry images
+ *    share the stroke-pinned camera ray. Prepared batches instead reflect the
+ *    complete geometric frame per image, including this direction, and restore
+ *    the primary frame afterward. (The original design
  *    cached a per-stroke product with per-image reflected rays; first-image-
  *    wins stamping then mixed opposed rays in leaf-sized blocks — the
  *    node-boundary tearing.)
@@ -114,6 +115,11 @@ inline float cavityRawT(const Src &src, int v, int blur_steps, CavityScratch &sc
 {
   scr.ensure(src.vertCap());
   scr.token++;
+  if (scr.token == 0) {
+    for (auto &stamp : scr.visitStamp)
+      stamp = 0;
+    scr.token = 1;
+  }
   const uint32_t tok = scr.token;
 
   const float3 originCo = src.co(v);
@@ -186,7 +192,7 @@ struct MeshCavitySrc {
   mesh::Mesh *m;
   int vertCap() const
   {
-    return m->v.count;
+    return int(m->v.capacity());
   }
   float3 co(int v) const
   {

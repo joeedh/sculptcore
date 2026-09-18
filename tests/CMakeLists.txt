@@ -38,6 +38,9 @@ test(test_attr_merge.cc "mesh")
 test(test_deform_attr.cc "mesh")
 test(test_weights_attr.cc "mesh")
 test(test_props.cc "props")
+test(test_props_typed_dynamics.cc "props")
+test(test_props_checked_access.cc "props")
+test(test_props_declarations.cc "props")
 test(test_props_curve.cc "props")
 test(test_meshlog_topo.cc "meshlog;mesh;spatial")
 test(test_meshlog_preview_unbound.cc "meshlog;mesh;spatial")
@@ -93,6 +96,8 @@ test(test_brush.cc "binding_generators")
 test(test_stroke_driver.cc "brush;spatial;mesh")
 test(test_brush_metadata.cc "brush;spatial;mesh")
 test(test_brush_registry.cc "brush;spatial;mesh")
+test(test_brush_configuration.cc "brush;spatial;mesh")
+test(test_brush_prepared_execution.cc "brush;meshlog;spatial;mesh")
 test(test_gpu_uniform_pack.cc "brush;spatial;mesh")
 test(test_brush_live_links.cc "brush;spatial;mesh")
 
@@ -101,6 +106,29 @@ test(test_brush_live_links.cc "brush;spatial;mesh")
 if (TARGET sbrushc_core)
 test(test_sbrush_textures.cc "sbrushc_core")
 test(test_sbrush_attr_writes.cc "sbrushc_core")
+test(test_sbrush_member_types.cc "sbrushc_core")
+test(test_brush_named_storage.cc "sbrushc_core;brush")
+test(test_brush_typed_extras.cc "sbrushc_core;brush;subdiv;meshlog;spatial;mesh")
+list(FIND SCULPTCORE_EXTRA_KERNEL_DIRS "${CMAKE_CURRENT_SOURCE_DIR}/assets/typed_extras" TYPED_EXTRA_INDEX)
+if (NOT TYPED_EXTRA_INDEX EQUAL -1)
+  target_compile_definitions(test_brush_typed_extras.cc_out PRIVATE SCULPTCORE_TYPED_EXTRA_FIXTURE=1)
+endif()
+set(NAMED_STORAGE_FIXTURE "${CMAKE_CURRENT_BINARY_DIR}/named_storage.brush.gen.h")
+add_custom_command(OUTPUT "${NAMED_STORAGE_FIXTURE}"
+  COMMAND $<TARGET_FILE:sbrushc> --backend=cpp --extras
+    --in=${CMAKE_CURRENT_SOURCE_DIR}/assets/named_storage.sbrush
+    --out=${NAMED_STORAGE_FIXTURE}
+  DEPENDS sbrushc ${CMAKE_CURRENT_SOURCE_DIR}/assets/named_storage.sbrush
+  VERBATIM)
+target_sources(test_brush_named_storage.cc_out PRIVATE "${NAMED_STORAGE_FIXTURE}")
+set(PREPARED_PRELUDES_FIXTURE "${CMAKE_CURRENT_BINARY_DIR}/prepared_preludes.brush.gen.h")
+add_custom_command(OUTPUT "${PREPARED_PRELUDES_FIXTURE}"
+  COMMAND $<TARGET_FILE:sbrushc> --backend=cpp --extras
+    --in=${CMAKE_CURRENT_SOURCE_DIR}/assets/prepared_preludes.sbrush
+    --out=${PREPARED_PRELUDES_FIXTURE}
+  DEPENDS sbrushc ${CMAKE_CURRENT_SOURCE_DIR}/assets/prepared_preludes.sbrush
+  VERBATIM)
+target_sources(test_brush_prepared_execution.cc_out PRIVATE "${PREPARED_PRELUDES_FIXTURE}")
 # The C99 backend end-to-end: emitCTextureDefs -> tinycc JIT -> parity
 # against the precompiled texture registry (texture-scripts T3.2).
 test(test_texture_c_jit.cc "sbrushc_core;brush;tinycc")
@@ -151,6 +179,7 @@ test(test_unbounded_seam.cc "debug_core")
 test(test_brush_props.cc "debug_core")
 test(test_brush_dynamics.cc "debug_core")
 test(test_brush_uniform_validate.cc "debug_core")
+test(test_brush_declarations.cc "debug_core")
 test(test_brush_falloff.cc "debug_core")
 test(test_bsmooth.cc "debug_core")
 test(test_enhance.cc "debug_core")
@@ -175,3 +204,5 @@ add_custom_command(TARGET test_stencil_gpu.cc_out POST_BUILD
     $<TARGET_FILE:wgpu_native> $<TARGET_FILE_DIR:test_stencil_gpu.cc_out>
   VERBATIM)
 #test(test_constexpr_bug.cc "")
+
+test(test_semantic_scalars.cc "brush")

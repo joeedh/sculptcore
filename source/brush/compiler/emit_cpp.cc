@@ -1,5 +1,6 @@
 #include "emit_cpp.h"
 #include "../kernels/ir/intrinsics.h"
+#include "prepared_preludes.h"
 // The engine-side Brush struct: sbrushc consults Brush::builtinPropNames at
 // generation time to split member-backed uniforms from named-store slots.
 #include "brush/brush.h"
@@ -13,6 +14,16 @@ using litestl::util::string;
 using litestl::util::stringref;
 using litestl::util::Vector;
 
+string kernelCppName(const string &attrName, const string &cppName)
+{
+  string name = attrName.size() ? attrName : cppName;
+  for (size_t i = 0; i < name.size(); i++) {
+    name[i] = char(i == 0 ? std::toupper((unsigned char)name[i])
+                          : std::tolower((unsigned char)name[i]));
+  }
+  return name;
+}
+
 bool isCtxBaseName(const char *n)
 {
   return (std::strcmp(n, "mouse") == 0) || (std::strcmp(n, "mousePos") == 0) ||
@@ -21,19 +32,76 @@ bool isCtxBaseName(const char *n)
          (std::strcmp(n, "isFirstOfStep") == 0) || (std::strcmp(n, "meshLog") == 0);
 }
 
-bool isMemberBackedName(const char *name)
+static const ::sculptcore::brush::BrushMemberDescriptor *
+memberDescriptor(const char *name)
 {
   // Permanent: a process-lifetime cache, so it must not read as a leak in a test
   // that calls alloc::print_blocks before static destructors run.
-  static Vector<string> names = [] {
+  static Vector<::sculptcore::brush::BrushMemberDescriptor> descriptors = [] {
     litestl::alloc::pushPermanentAlloc();
-    Vector<string> v;
-    ::sculptcore::brush::Brush::builtinPropNames(v);
+    Vector<::sculptcore::brush::BrushMemberDescriptor> v;
+    ::sculptcore::brush::Brush::builtinPropDescriptors(v);
     litestl::alloc::popPermanentAlloc();
     return v;
   }();
-  for (const auto &n : names) {
-    if (n == string(name)) {
+  for (const auto &descriptor : descriptors) {
+    if (std::strcmp(descriptor.name, name) == 0) {
+      return &descriptor;
+    }
+  }
+  return nullptr;
+}
+
+bool isMemberBackedName(const char *name)
+{
+  return memberDescriptor(name) != nullptr;
+}
+
+static props::Prop fieldStorageType(TypeKind type)
+{
+  switch (type) {
+  case TypeKind::Bool:
+    return props::Prop::BOOL;
+  case TypeKind::Int:
+    return props::Prop::INT32;
+  case TypeKind::Float:
+    return props::Prop::FLOAT32;
+  case TypeKind::Float2:
+    return props::Prop::VEC2F;
+  case TypeKind::Float3:
+    return props::Prop::VEC3F;
+  case TypeKind::Float4:
+    return props::Prop::VEC4F;
+  case TypeKind::Array:
+    return props::Prop::ARRAYBUFFER;
+  default:
+    return props::Prop::INVALID_TYPE;
+  }
+}
+
+bool fieldDynamicCapable(const Field &field)
+{
+  const auto *member = memberDescriptor(field.name.c_str());
+  const bool scalar = field.type == TypeKind::Float ||
+                      ((field.type == TypeKind::Bool || field.type == TypeKind::Int) &&
+                       field.dynamicExplicit);
+  return scalar && field.dynamicCapable && (!member || member->dynamic);
+}
+
+static bool reservedWireName(const char *name)
+{
+  for (const char *reserved : {"falloff_kind",
+                               "falloff_shape",
+                               "falloff_dir",
+                               "falloff_extent",
+                               "unbounded_extent",
+                               "coord_space",
+                               "tex_repeat",
+                               "stroke_path_count",
+                               "nonaccum",
+                               "grab_dab_gen"})
+  {
+    if (std::strcmp(name, reserved) == 0) {
       return true;
     }
   }
@@ -53,10 +121,27 @@ bool fieldUsesStore(const Field &f)
 
 namespace {
 
+const char *storeSuffix(TypeKind type)
+{
+  return type == TypeKind::Bool ? "Bool" : type == TypeKind::Int ? "Int" : "Float";
+}
+
+const char *scalarCppType(TypeKind type)
+{
+  return type == TypeKind::Bool ? "bool" : type == TypeKind::Int ? "int" : "float";
+}
+
+string integralLiteral(double value)
+{
+  char text[32];
+  std::snprintf(text, sizeof(text), "%.0f", value);
+  return string(text);
+}
+
 struct Emit {
   const Brush *brush;
   // Extra (out-of-repo) kernel: store-classified uniforms lower to
-  // namedFloats slots instead of erroring (see CppEmitOptions).
+  // typed named slots instead of erroring (see CppEmitOptions).
   bool extrasMode = false;
   const Stage *vertexStage = nullptr;
   const Stage *faceStage = nullptr;
@@ -91,6 +176,39 @@ struct Emit {
   // Set when a NeighborLoop is emitted — drives an extra #include in
   // the generated header so EdgeOfVertIter resolves.
   bool neighborLoopUsed = false;
+  bool preparedStateUnsafe = false;
+  bool certifiedPrelude = false;
+
+  void validateGeneratedName(const string &name)
+  {
+    if (name == string("any_moved") || name == string("ctx") || name == string("brush") ||
+        std::strncmp(name.c_str(), "sb_", 3) == 0 ||
+        std::strncmp(name.c_str(), "__", 2) == 0)
+      errf("name '%s' is reserved by C++ code generation", name.c_str());
+  }
+
+  void validateGeneratedLocals(const Stmt *stmt)
+  {
+    if (!stmt)
+      return;
+    if (stmt->kind == StmtKind::DeclLocal || stmt->kind == StmtKind::NeighborLoop)
+      validateGeneratedName(stmt->name);
+    for (const auto &child : stmt->stmts)
+      validateGeneratedLocals(child.get());
+    validateGeneratedLocals(stmt->thenBranch.get());
+    validateGeneratedLocals(stmt->elseBranch.get());
+    validateGeneratedLocals(stmt->forInit.get());
+    validateGeneratedLocals(stmt->forStep.get());
+  }
+
+  void validateGeneratedTextureNames(const TextureDef &texture)
+  {
+    for (const auto &param : texture.params)
+      validateGeneratedName(param.name);
+    for (const auto &param : texture.texParams)
+      validateGeneratedName(param.name);
+    validateGeneratedLocals(texture.body.get());
+  }
   // Set when grad(expr, var) is used — emits the forward-mode dual prelude.
   bool gradUsed = false;
   // When rewriting a grad body, the float3 variable being differentiated.
@@ -146,6 +264,65 @@ struct Emit {
         return true;
     }
     return false;
+  }
+
+  static bool scalarOrVectorValue(TypeKind type)
+  {
+    return type == TypeKind::Float || type == TypeKind::Int || type == TypeKind::Bool ||
+           type == TypeKind::Float2 || type == TypeKind::Float3 ||
+           type == TypeKind::Float4;
+  }
+
+  bool preparedAssignmentSafe(const Expr &expression) const
+  {
+    const Expr *root = &expression;
+    while (root->kind == ExprKind::Member || root->kind == ExprKind::Index ||
+           root->kind == ExprKind::Paren)
+    {
+      root = root->lhs.get();
+    }
+    if (root->kind != ExprKind::Ident)
+      return false;
+    for (const auto &neighbor : nbrBundles)
+      if (root->name == neighbor)
+        return false;
+    // Lexical locals win over fields/parameters, just as identifier emission does.
+    for (size_t i = locals.size(); i > 0; i--)
+      if (root->name == locals[i - 1].name)
+        return scalarOrVectorValue(locals[i - 1].type);
+    if (currentTexture && currentStage) {
+      for (const auto &param : currentStage->params)
+        if (root->name == param.name)
+          return scalarOrVectorValue(param.type);
+    }
+    const bool vertex = currentStage == vertexStage && root->name == vertexParamName;
+    const bool face = currentStage == faceStage && root->name == faceParamName;
+    if (!vertex && !face)
+      return false;
+    // Bundles also expose executor/context references. Only saved members and
+    // numeric component/index suffixes qualify.
+    const Expr *member = &expression;
+    while (member->kind == ExprKind::Paren || member->kind == ExprKind::Index ||
+           (member->kind == ExprKind::Member &&
+            (member->name == string("x") || member->name == string("y") ||
+             member->name == string("z") || member->name == string("w"))))
+    {
+      member = member->lhs.get();
+    }
+    if (member->kind != ExprKind::Member)
+      return false;
+    bool saved = false;
+    const auto domain = vertex ? AttrDomain::Vertex : AttrDomain::Face;
+    if (brush->saves.size() == 0)
+      saved |= member->name == string("no") || (vertex && member->name == string("co"));
+    for (const auto &save : brush->saves)
+      saved |= save.domain == domain && save.name == member->name;
+    if (!saved)
+      return false;
+    const Expr *base = member->lhs.get();
+    while (base->kind == ExprKind::Paren)
+      base = base->lhs.get();
+    return base == root;
   }
 
   bool isDualLocal(stringref name) const
@@ -434,15 +611,16 @@ struct Emit {
         // is no `ctx.brush`, so uniforms/non-builtin ctx fields resolve
         // to bare `brush.X` instead. Builtin ctx-base fields still go
         // through `ctx.X` either way. Extra-kernel store uniforms read
-        // their registry-assigned namedFloats slot.
+        // their registry-assigned typed slot.
         bool isCtxBase = isCtxBaseName(e.name.c_str());
         bool inHost = (currentStage && currentStage->kind == StageKind::Host);
         if (f->kind == FieldKind::Ctx && isCtxBase) {
           out += "ctx.";
           out += e.name;
         } else if (extrasMode && fieldUsesStore(*f)) {
-          out += inHost ? "brush.namedFloats[kExtraSlot_"
-                        : "ctx.brush.namedFloats[kExtraSlot_";
+          out += inHost ? "brush.named" : "ctx.brush.named";
+          out += storeSuffix(f->type);
+          out += "s[kExtraSlot_";
           out += e.name;
           out += "]";
         } else {
@@ -664,6 +842,12 @@ struct Emit {
         // No intrinsic — emit a direct call. Used for built-in math
         // free functions (length, dot, ...) once their intrinsics are
         // registered; for now any unknown name reaches here.
+        if (e.name != string("float") && e.name != string("int") &&
+            e.name != string("bool") && e.name != string("float2") &&
+            e.name != string("float3") && e.name != string("float4"))
+        {
+          preparedStateUnsafe = true;
+        }
         out += e.name;
         out += "(";
         for (int i = 0; i < (int)e.args.size(); i++) {
@@ -904,7 +1088,40 @@ struct Emit {
       out += ";\n";
       locals.append(LocalVar{s.name, s.declType});
       break;
-    case StmtKind::Assign:
+    case StmtKind::Assign: {
+      if (!certifiedPrelude && !preparedAssignmentSafe(*s.lvalue)) {
+        preparedStateUnsafe = true;
+      }
+      const Expr *storeTarget = s.lvalue.get();
+      while (storeTarget->kind == ExprKind::Paren)
+        storeTarget = storeTarget->lhs.get();
+      if (extrasMode && storeTarget->kind == ExprKind::Ident) {
+        stringref name(storeTarget->name.c_str());
+        const Field *field = findField(name);
+        if (!isLocal(name) && !isStageParam(name) && field && fieldUsesStore(*field)) {
+          writeIndent();
+          out += currentStage && currentStage->kind == StageKind::Host
+                     ? "brush.setEvaluatedNamed"
+                     : "ctx.brush.setEvaluatedNamed";
+          out += storeSuffix(field->type);
+          out += "(kExtraSlot_";
+          out += field->name;
+          out += ", ";
+          const char *op = assignOpCSym(s.assignOp);
+          if (op[0] != '=') {
+            emitExpr(*s.lvalue);
+            char symbol[4] = {' ', op[0], ' ', 0};
+            out += symbol;
+            out += "(";
+            emitExpr(*s.rvalue);
+            out += ")";
+          } else {
+            emitExpr(*s.rvalue);
+          }
+          out += ");\n";
+          break;
+        }
+      }
       if (dualBody && s.lvalue->kind == ExprKind::Ident &&
           isDualLocal(stringref(s.lvalue->name.c_str())))
       {
@@ -946,6 +1163,7 @@ struct Emit {
       emitExpr(*s.rvalue);
       out += ";\n";
       break;
+    }
     case StmtKind::If: {
       writeIndent();
       out += "if (";
@@ -1144,8 +1362,8 @@ struct Emit {
     return r;
   }
 
-  // Format a double as a valid C++ float literal (mirrors the LitFloat case).
-  static string floatLit(double v)
+  // Preserve exact parsed metadata independently of float working storage.
+  static string doubleLit(double v)
   {
     char buf[64];
     std::snprintf(buf, sizeof(buf), "%.17g", v);
@@ -1159,8 +1377,12 @@ struct Emit {
     string r = buf;
     if (!hasDot)
       r += ".0";
-    r += "f";
     return r;
+  }
+
+  static string floatLit(double v)
+  {
+    return doubleLit(v) + "f";
   }
 
   // DSL attr type -> C++ element type. Used inside the vertex fn, which opens
@@ -1249,6 +1471,7 @@ struct Emit {
   // any param-passing happens via ctx state.
   void emitHostStage(const Stage &st, const string &lowerBrush)
   {
+    certifiedPrelude = PreparedPreludeProof(*brush).host(st);
     write("template <CommandTypes TYPES>\n");
     write("static void ");
     write(lowerBrush);
@@ -1267,6 +1490,7 @@ struct Emit {
         locals.pop_back();
     }
     currentStage = nullptr;
+    certifiedPrelude = false;
     indent = 0;
     write("}\n\n");
   }
@@ -1276,6 +1500,7 @@ struct Emit {
   // reference param, scalars stay by-value (in) or by-reference (out/inout).
   void emitReduceStage(const Stage &st, const string &lowerBrush)
   {
+    certifiedPrelude = PreparedPreludeProof(*brush).reduce(st);
     write("template <CommandTypes TYPES>\n");
     write("static void ");
     write(lowerBrush);
@@ -1312,6 +1537,7 @@ struct Emit {
         locals.pop_back();
     }
     currentStage = nullptr;
+    certifiedPrelude = false;
     indent = 0;
     write("}\n\n");
   }
@@ -1798,8 +2024,13 @@ struct Emit {
     };
     write("/** Marshal this kernel's appended DSL uniforms (offset 72+) into a\n");
     write(" * ComputeBrushUniforms buffer; offsets mirror the kernel's WGSL\n");
-    write(" * BrushUniforms block. Called via builtinBrushGpuPack from\n");
-    write(" * packBrushUniforms (gpu_marshal.cc). */\n");
+    if (extrasMode) {
+      write(
+          " * BrushUniforms block. Extra GPU runtime dispatch is not implemented. */\n");
+    } else {
+      write(" * BrushUniforms block. Called via builtinBrushGpuPack from\n");
+      write(" * packBrushUniforms (gpu_marshal.cc). */\n");
+    }
     write("inline void pack");
     write(camelName);
     write("GpuUniforms(sculptcore::brush::Brush &brush, unsigned char *out)\n");
@@ -1820,6 +2051,7 @@ struct Emit {
       switch (f.type) {
       case TypeKind::Float:
       case TypeKind::Int:
+      case TypeKind::Bool:
         break;
       case TypeKind::Float2:
         align = size = 8;
@@ -1845,10 +2077,30 @@ struct Emit {
       char loc[64];
       std::snprintf(loc, sizeof(loc), "out + %d", off);
       if (extrasMode && fieldUsesStore(f)) {
-        write("  {\n    float v = brush.getNamedFloat(kExtraSlot_");
+        write("  {\n    ");
+        write(f.type == TypeKind::Bool  ? "uint32_t"
+              : f.type == TypeKind::Int ? "int32_t"
+                                        : "float");
+        write(" v = brush.getNamed");
+        write(storeSuffix(f.type));
+        write("(kExtraSlot_");
         write(f.name);
-        write(");\n");
-        if (f.hasRange) {
+        write(f.type == TypeKind::Bool ? ") ? 1u : 0u;\n" : ");\n");
+        if (f.hasRange && f.type != TypeKind::Float) {
+          const double lower = std::ceil(
+              std::max(f.rangeMin, f.type == TypeKind::Bool ? 0.0 : double(INT32_MIN)));
+          const double upper = std::floor(
+              std::min(f.rangeMax, f.type == TypeKind::Bool ? 1.0 : double(INT32_MAX)));
+          write("    v = v < ");
+          write(integralLiteral(lower));
+          write(" ? ");
+          write(integralLiteral(lower));
+          write(" : (v > ");
+          write(integralLiteral(upper));
+          write(" ? ");
+          write(integralLiteral(upper));
+          write(" : v);\n");
+        } else if (f.hasRange) {
           write("    v = v < ");
           write(floatLit(f.rangeMin));
           write(" ? ");
@@ -1896,7 +2148,7 @@ struct Emit {
   {
     string lowerName =
         lower(string(brush->attrName.size() > 0 ? brush->attrName : brush->cppName));
-    string camelName = capitalize(lowerName);
+    string camelName = kernelCppName(brush->attrName, brush->cppName);
 
     // for_neighbor brushes are templated on a NbrSource policy (live disk walk
     // vs cached CSR), chosen once at brush-command creation. Detect it up front
@@ -2230,6 +2482,25 @@ struct Emit {
     write("  def.execPost = ");
     write(lowerName);
     write("Post<TYPES>;\n");
+    PreparedPreludeProof preludeProof(*brush);
+    bool hostsNoop = true;
+    for (const auto *stage : hostStages)
+      hostsNoop &= preludeProof.host(*stage);
+    write("  def.preparedHostNoop = ");
+    write(hostsNoop ? "true;\n" : "false;\n");
+    write("  def.preparedScalarSafe = ");
+    int vertexSaves = 0, faceSaves = 0, customSaves = 0;
+    for (const auto &save : brush->saves) {
+      vertexSaves += save.domain == AttrDomain::Vertex;
+      faceSaves += save.domain == AttrDomain::Face;
+      customSaves += save.name != string("co") && save.name != string("no") &&
+                     save.name != string("mask") && save.name != string("color");
+    }
+    write(!preparedStateUnsafe && hostsNoop && (bool(vertexStage) != bool(faceStage)) &&
+                  vertexSaves <= 8 && faceSaves <= 8 && customSaves <= 10 &&
+                  preludeProof.reduceCalls(vertexStage ? vertexStage : faceStage)
+              ? "true;\n"
+              : "false;\n");
     // for_neighbor reads ctx.co_prev — tell the executor to snapshot it.
     if (neighborLoopUsed) {
       write("  def.needsCoPrev = true;\n");
@@ -2322,81 +2593,81 @@ struct Emit {
               f.name.c_str());
       }
     }
-    // Declared uniforms — the executor registers these as props and applies
-    // device dynamics each dab (see sbrush-dynamic-uniforms plan). Carries the
-    // DSL `= <n>` default, `@range(a,b)`, and `@static` opt-out.
     for (const auto &f : brush->fields) {
-      if (f.kind != FieldKind::Uniform)
+      if (f.kind != FieldKind::Uniform) {
         continue;
-      bool isFloat = f.type == TypeKind::Float;
-      bool dynamic = isFloat && f.dynamicCapable;
-      double def = f.hasDefault ? f.defaultValue : 0.0;
+      }
       write("  def.uniforms.append(sculptcore::brush::BrushUniformManifestEntry{\"");
       write(f.name);
       write("\", ");
-      write(isFloat ? "true" : "false"); // isFloat
+      write(f.type == TypeKind::Float ? "true" : "false");
       write(", ");
-      write(dynamic ? "true" : "false"); // dynamic
+      write(fieldDynamicCapable(f) ? "true" : "false");
       write(", ");
-      write(floatLit(def)); // def
+      write(doubleLit(f.hasDefault ? f.defaultValue : 0.0));
       write(", ");
-      write(f.hasRange ? "true" : "false"); // hasRange
+      write(f.hasRange ? "true" : "false");
       write(", ");
-      write(floatLit(f.hasRange ? f.rangeMin : 0.0));
+      write(doubleLit(f.hasRange ? f.rangeMin : 0.0));
       write(", ");
-      write(floatLit(f.hasRange ? f.rangeMax : 0.0));
+      write(doubleLit(f.hasRange ? f.rangeMax : 0.0));
+      write(", ");
       if (extrasMode && fieldUsesStore(f)) {
-        write(", kExtraSlot_");
-        write(f.name); // storeSlot (-1 default for member-backed entries)
+        write("kExtraSlot_");
+        write(f.name);
+      } else {
+        write("-1");
       }
+      write(", sculptcore::props::Prop::");
+      write(f.type == TypeKind::Float  ? "FLOAT32"
+            : f.type == TypeKind::Int  ? "INT32"
+            : f.type == TypeKind::Bool ? "BOOL"
+                                       : "INVALID_TYPE");
+      write(", ");
+      write(f.hasDefault ? "true" : "false");
       write("});\n");
     }
-    // Generated prop wiring: register this kernel's scalar-float uniforms as
-    // props (idempotent, authored default seeded) and resolve them each dab
-    // applying device dynamics into the cached Brush members the kernel reads.
-    // Replaces the hand-written structDef_/loadProps lists for these fields; the
-    // fixed common props (strength/radius/...) stay on Brush. Non-float uniforms
-    // remain plain host-set members (no prop).
-    write("  def.registerProps = [](sculptcore::props::StructDef &sd) {\n");
-    for (const auto &f : brush->fields) {
-      if (f.kind != FieldKind::Uniform || f.type != TypeKind::Float || !f.dynamicCapable)
-        continue;
-      double def = f.hasDefault ? f.defaultValue : 0.0;
-      write("    if (!sd.has(\"");
-      write(f.name);
-      write("\")) sd.Float32(\"");
-      write(f.name);
-      write("\", \"");
-      write(f.name);
-      write("\").Default(");
-      write(floatLit(def));
-      write(");\n");
-    }
-    write("  };\n");
     write("  def.loadUniformProps = [](sculptcore::brush::Brush &brush, "
           "sculptcore::props::DeviceInputCtx *ctx) {\n");
     for (const auto &f : brush->fields) {
-      if (f.kind != FieldKind::Uniform || f.type != TypeKind::Float || !f.dynamicCapable)
+      if (f.kind != FieldKind::Uniform || !fieldDynamicCapable(f))
         continue;
       double def = f.hasDefault ? f.defaultValue : 0.0;
       if (extrasMode && fieldUsesStore(f)) {
-        // Store uniforms resolve dynamics into their slot (setNamedFloat
-        // sizes defensively; ensureExtraUniformDefaults ran at creation).
-        write("    brush.setNamedFloat(kExtraSlot_");
+        // Evaluated values must not replace the authored base.
+        write("    brush.setEvaluatedNamed");
+        write(storeSuffix(f.type));
+        write("(kExtraSlot_");
         write(f.name);
-        write(", brush.props.lookupValue<float>(\"");
+        write(", brush.props.lookupValue<");
+        write(scalarCppType(f.type));
+        write(">(\"");
         write(f.name);
         write("\", ");
-        write(floatLit(def));
+        write(f.type == TypeKind::Bool  ? string(def != 0 ? "true" : "false")
+              : f.type == TypeKind::Int ? integralLiteral(def)
+                                        : floatLit(def));
         write(", ctx));\n");
         continue;
       }
       write("    brush.");
       write(f.name);
-      write(" = brush.props.lookupValue<float>(\"");
+      write(" = brush.props.lookupValue<");
+      write(f.type == TypeKind::Bool  ? "bool"
+            : f.type == TypeKind::Int ? "int"
+                                      : "float");
+      write(">(\"");
       write(f.name);
       write("\", ");
-      write(floatLit(def));
+      if (f.type == TypeKind::Bool) {
+        write(def != 0 ? "true" : "false");
+      } else if (f.type == TypeKind::Int) {
+        char literal[32];
+        std::snprintf(literal, sizeof(literal), "%.0f", def);
+        write(literal);
+      } else {
+        write(floatLit(def));
+      }
       write(", ctx);\n");
     }
     write("  };\n");
@@ -2410,18 +2681,80 @@ struct Emit {
 
 } // namespace
 
-EmitResult emitCpp(const Brush &brush, const CppEmitOptions &opts)
+Vector<string> validateCppFields(const Brush &brush, const CppEmitOptions &opts)
 {
   Emit em;
   em.brush = &brush;
   em.extrasMode = opts.extras;
+  for (const auto &stage : brush.stages) {
+    for (const auto &param : stage.params)
+      em.validateGeneratedName(param.name);
+    em.validateGeneratedLocals(stage.body.get());
+  }
+  for (const auto &texture : brush.textures)
+    em.validateGeneratedTextureNames(texture);
 
   // Uniform resolution gate. Built-in kernels: every uniform / non-builtin
   // ctx field must be member-backed (Brush::builtinPropNames) — the honesty
   // tripwire that keeps the list in sync with what kernels read. Extra
-  // kernels: unlisted scalar floats fall through to the named store; any
-  // other unlisted type still needs an engine-side member.
+  // kernels: unlisted float/int/bool fields use typed named stores.
+  Vector<string> names;
   for (const auto &f : brush.fields) {
+    em.validateGeneratedName(f.name);
+    for (const auto &name : names) {
+      if (name == f.name) {
+        em.errors.append(string("duplicate field '") + f.name + "'");
+      }
+    }
+    names.append(f.name);
+    if (f.kind == FieldKind::Uniform || (opts.extras && fieldUsesStore(f))) {
+      const auto type = fieldStorageType(f.type);
+      if (type == props::Prop::FLOAT32 || type == props::Prop::INT32 ||
+          type == props::Prop::BOOL)
+      {
+        props::ScalarDeclaration declaration{f.name,
+                                             type,
+                                             f.hasDefault,
+                                             f.defaultValue,
+                                             f.hasRange,
+                                             f.rangeMin,
+                                             f.rangeMax,
+                                             fieldDynamicCapable(f)};
+        if (props::validateScalarDeclaration(declaration) != props::PropError::ERROR_NONE)
+        {
+          em.errors.append(string("uniform '") + f.name +
+                           "': invalid scalar default or range");
+        }
+      } else if (f.hasDefault || f.hasRange) {
+        em.errors.append(string("uniform '") + f.name +
+                         "': numeric metadata requires a scalar type");
+      }
+    }
+    if (f.kind != FieldKind::Attr) {
+      const auto *member = memberDescriptor(f.name.c_str());
+      if (!member && f.kind == FieldKind::Uniform &&
+          (reservedWireName(f.name.c_str()) || isCtxBaseName(f.name.c_str())))
+      {
+        em.errors.append(string("field '") + f.name +
+                         "': reserved execution field cannot be a uniform");
+      }
+      if (member && (member->type != fieldStorageType(f.type) ||
+                     (f.type == TypeKind::Array &&
+                      (member->arrayElement != fieldStorageType(f.arrayElem) ||
+                       member->arraySize != f.arraySize))))
+      {
+        em.errors.append(string("field '") + f.name +
+                         "': type does not match native Brush member");
+      }
+      if (f.dynamicExplicit && (f.kind != FieldKind::Uniform ||
+                                (f.type != TypeKind::Float && f.type != TypeKind::Int &&
+                                 f.type != TypeKind::Bool) ||
+                                (member && !member->dynamic)))
+      {
+        em.errors.append(string("field '") + f.name +
+                         "': native semantics do not allow dynamics");
+      }
+    }
     if (!fieldUsesStore(f)) {
       continue;
     }
@@ -2433,16 +2766,28 @@ EmitResult emitCpp(const Brush &brush, const CppEmitOptions &opts)
                     "and list it in Brush::builtinPropNames (brush.h)",
                     f.name.c_str());
       em.errors.append(string(buf));
-    } else if (f.type != TypeKind::Float) {
-      std::snprintf(buf,
-                    sizeof(buf),
-                    "extra kernel uniform '%s': only scalar floats can use the named "
-                    "store; a %s uniform needs an existing Brush member",
-                    f.name.c_str(),
-                    typeKindName(f.type));
+    } else if (f.type != TypeKind::Float && f.type != TypeKind::Int &&
+               f.type != TypeKind::Bool)
+    {
+      std::snprintf(
+          buf,
+          sizeof(buf),
+          "extra kernel uniform '%s': only float/int/bool scalars can use the named "
+          "store; a %s uniform needs an existing Brush member",
+          f.name.c_str(),
+          typeKindName(f.type));
       em.errors.append(string(buf));
     }
   }
+  return std::move(em.errors);
+}
+
+EmitResult emitCpp(const Brush &brush, const CppEmitOptions &opts)
+{
+  Emit em;
+  em.brush = &brush;
+  em.extrasMode = opts.extras;
+  em.errors = validateCppFields(brush, opts);
   if (em.errors.size() > 0) {
     EmitResult r;
     r.errors = std::move(em.errors);
@@ -2483,6 +2828,13 @@ EmitResult emitCppTextureDefs(const Brush &brush)
 {
   Emit em;
   em.brush = &brush;
+  for (const auto &td : brush.textures)
+    em.validateGeneratedTextureNames(td);
+  if (em.errors.size()) {
+    EmitResult result;
+    result.errors = std::move(em.errors);
+    return result;
+  }
   for (const auto &td : brush.textures) {
     em.emitTextureBlock(td);
     em.emitTextureManifest(td);

@@ -78,8 +78,24 @@ struct MeshCapturePolicy {
     if (!mask) {
       return;
     }
-    auto *store = ctx.meshLog->elemStore(Domain);
     litestl::util::span<const mesh::AttrRef> span(refs, n);
+    if (ctx.preparedAttributeCapture) {
+      auto *store = litestl::alloc::New<meshlog::LogChunkElems>(
+          "prepared attribute capture", Domain);
+      store->type = meshlog::LogChunkTypes::PreparedData;
+      ctx.meshLog->appendChunk(store);
+      auto &group = Domain == mesh::ElemType::VERTEX ? m->v.attrs : m->f.attrs;
+      litestl::util::Set<int> seen;
+      for (auto *node : nodes) {
+        auto &elements = Domain == mesh::ElemType::VERTEX ? node->unique_verts()
+                                                          : node->unique_faces();
+        for (int id : elements)
+          if (seen.add(id))
+            store->data.appendFrom(group, id, span);
+      }
+      return;
+    }
+    auto *store = ctx.meshLog->elemStore(Domain);
     if constexpr (Domain == mesh::ElemType::VERTEX) {
       sculptcore::meshlog::parallelCapture<Domain>(
           *store, m->v.attrs, nodes, saver, span, sid, mask);

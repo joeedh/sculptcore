@@ -537,6 +537,40 @@ int main()
   const std::string s0 = storeBlob(mr.store);
   const DabBattery dabs = topFaceBattery();
 
+  for (bool reverse : {false, true}) {
+    Brush brush;
+    setupBrush(brush, 0.25f, 0.5f);
+    brush.props.struct_def->Bool("projection", "Conflict", -1);
+    BrushProgram program;
+    program.addCommand(int(reverse ? SculptBrushes::BSMOOTH : SculptBrushes::KELVINLET));
+    program.addCommand(int(reverse ? SculptBrushes::KELVINLET : SculptBrushes::BSMOOTH));
+    auto *domain = mr.gridDomain(kLevel);
+    GridStrokeLog log;
+    GridBrushExecutor executor(domain, &brush, &log);
+    Vector<float3> before;
+    for (int i = 0; i < domain->vertCount(); i++) {
+      before.append(domain->pos()[i]);
+    }
+    int samples = brush.strokePathCount;
+    bool hadUndo = log.canUndo();
+    TASSERT(executor.applyProgram(&program, float3(99), float3(0, 0, 1)) == -1);
+    TASSERT(executor.applyProgram(&program, dabs.origins[0], dabs.normals[0]) == -1);
+    TASSERT(!brush.props.struct_def->has("mu") && !brush.props.struct_def->has("nu"));
+    TASSERT(samples == brush.strokePathCount && log.canUndo() == hadUndo);
+    for (int i = 0; i < domain->vertCount(); i++) {
+      TASSERT(std::memcmp(&domain->pos()[i][0], &before[i][0], 3 * sizeof(float)) == 0);
+    }
+    TASSERT(storeBlob(mr.store) == s0);
+    GridStrokeSession *session = GridStroke_new(&mr, kLevel, &brush);
+    TASSERT(session != nullptr);
+    const float batchDab[] = {0, 0, 0.25f, 0, 0, 1, 0.25f};
+    float strength = brush.strength;
+    TASSERT(GridStroke_dabBatchProgram(
+                session, &program, 1, batchDab, 0.123f, 1, 0.25f, 1, nullptr, 0) == -1);
+    TASSERT(brush.strength == strength && brush.strokePathCount == samples);
+    GridStroke_free(session);
+  }
+
   /* Per-kernel A/B: mesh path vs grids path on identical store state. */
   struct ToolCase {
     SculptBrushes tool;
@@ -910,11 +944,15 @@ int main()
     }
     const std::string blobPost = storeBlob(mr.store);
 
+    const auto beforeUndoMaskGeneration = mr.maskGeneration();
     TASSERT(log.undo());
+    TASSERT(mr.maskGeneration() > beforeUndoMaskGeneration);
     for (int v = 0; v < d->vertCount(); v++) {
       TASSERT(d->mask[v] == 0.0f);
     }
+    const auto beforeRedoMaskGeneration = mr.maskGeneration();
     TASSERT(log.redo());
+    TASSERT(mr.maskGeneration() > beforeRedoMaskGeneration);
     bool same = true;
     for (int v = 0; v < d->vertCount(); v++) {
       same = same && d->mask[v] == maskPost[v];

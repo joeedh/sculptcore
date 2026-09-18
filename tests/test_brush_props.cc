@@ -2,7 +2,7 @@
 // scalar-float `uniform`s must register as props (with their authored defaults)
 // and load back into the cached Brush members — replacing the old hand-written
 // structDef_/loadProps lists. Also exercises the `@static` opt-out: a host-set
-// uniform (plane `planeSide`) must NOT be registered or overwritten by load.
+// uniform (plane `planeSide`) retains its host value after registration and load.
 //
 // Drives the generated `registerProps` / `loadUniformProps` slots directly off a
 // BrushCommandDef (no mesh/stroke needed); createCommand only fills function
@@ -27,7 +27,6 @@ int main()
     CommandExecutor exec(/*tree=*/nullptr, &brush);
     auto cmd = exec.createCommand(SculptBrushes::KELVINLET);
 
-    test_assert(cmd.registerProps != nullptr);
     test_assert(cmd.loadUniformProps != nullptr);
     test_assert(brush.props.struct_def != nullptr);
 
@@ -59,7 +58,7 @@ int main()
     fprintf(stderr, "kelvinlet: mu=%g nu=%g\n", brush.mu, brush.nu);
   }
 
-  // --- plane @static opt-out: planeSide is host-set, never a prop ---
+  // --- plane @static opt-out: planeSide retains its host value ---
   {
     Brush brush;
     CommandExecutor exec(/*tree=*/nullptr, &brush);
@@ -67,9 +66,12 @@ int main()
     auto cmd = exec.createCommand(SculptBrushes::CLAY);
 
     cmd.registerProps(*brush.props.struct_def);
-    // planeoff is a dynamic uniform; planeSide is @static and must be excluded.
+    // planeoff is dynamic; planeSide has a nondynamic declaration.
     test_assert(brush.props.struct_def->has("planeoff"));
-    test_assert(!brush.props.struct_def->has("planeSide"));
+    test_assert(brush.props.struct_def->has("planeSide"));
+    sculptcore::props::ScalarDeclaration declaration;
+    test_assert(brush.props.struct_def->scalarDeclaration("planeSide", declaration));
+    test_assert(!declaration.dynamic);
 
     // load must not clobber the host-set planeSide member.
     brush.planeSide = 7.0f;

@@ -100,12 +100,12 @@ static void createColorBrush(BrushCommandDef<CommandCtx<TYPES>> &def)
   def.execPre  = colorPre<TYPES>;
   def.exec     = color<TYPES, AccMode>;
   def.execPost = colorPost<TYPES>;
+  def.preparedHostNoop = true;
+  def.preparedScalarSafe = true;
   def.accumulable = false;
   def.attrs.append(sculptcore::brush::BrushAttrManifestEntry{"color", "", sculptcore::mesh::AttrType::FLOAT4, sculptcore::brush::AttrElemDomain::Vertex, true, true, int(sculptcore::mesh::AttrUse::COLOR)});
-  def.uniforms.append(sculptcore::brush::BrushUniformManifestEntry{"brushColor", false, false, 0.0f, false, 0.0f, 0.0f});
-  def.uniforms.append(sculptcore::brush::BrushUniformManifestEntry{"mixMode", false, false, 0.0f, false, 0.0f, 0.0f});
-  def.registerProps = [](sculptcore::props::StructDef &sd) {
-  };
+  def.uniforms.append(sculptcore::brush::BrushUniformManifestEntry{"brushColor", false, false, 0.0, false, 0.0, 0.0, -1, sculptcore::props::Prop::INVALID_TYPE, false});
+  def.uniforms.append(sculptcore::brush::BrushUniformManifestEntry{"mixMode", false, false, 0.0, false, 0.0, 0.0, -1, sculptcore::props::Prop::INT32, false});
   def.loadUniformProps = [](sculptcore::brush::Brush &brush, sculptcore::props::DeviceInputCtx *ctx) {
   };
 }

@@ -34,8 +34,8 @@ brush Kelvinlet {
 
   // Host stage runs once per dab on the CPU before any per-node work.
   // For kelvinlet, the only thing host needs to do is keep mu/nu inside
-  // the range where the reduce-stage math stays well-defined: nu near
-  // 0.5 sends `4 * (1 - nu)` to zero, and mu near zero blows up the
+  // the range where the reduce-stage math stays well-defined: the declared
+  // nu domain keeps `4 * (1 - nu)` positive, and mu near zero blows up the
   // `(1+nu)/(2*mu)` factor. Clamping here means downstream stages (on
   // any backend) consume sanitized values without having to repeat the
   // check per-vertex. Default mu=1.0, nu=0.4 are inside the range, so
@@ -55,33 +55,48 @@ brush Kelvinlet {
   }
 
   vertex void apply(inout Vertex v, in float a, in float b) {
-    float3 r = v.co - grabFrom;
-    float r2 = dot(r, r);
-    // Regularize by the brush radius — keeps the displacement bounded
-    // as a vertex approaches `grabFrom`.
-    float e = sqrt(r2 + radius * radius);
-    float invE = 1.0 / e;
-    float invE3 = invE * invE * invE;
-    // Formula (6): the isotropic part carries both the 1/r_e term and the
-    // a*eps^2/(2*r_e^3) regularization term; the anisotropic (f.r)r term is
-    // what makes this a tensor field rather than a scalar falloff.
-    float coef1 = (a - b) * invE + 0.5 * a * radius * radius * invE3;
-    float coef2 = b * dot(grabTo, r) * invE3;
-    float3 disp = grabTo * coef1 + r * coef2;
-    // Normalize so the displacement at the grab point (r = 0) equals grabTo.
-    // Without this the raw solution scales as 1/radius, so a small brush
-    // explodes into NaN/Inf coordinates — the source of the crash + the
-    // runaway-geometry slowdown. At r = 0 the displacement is
-    // grabTo*(1.5a - b)/radius, so the normalizer is radius/(1.5a - b);
-    // clamp it away from 0 (it only vanishes at nu > 0.833, outside our range).
-    float norm = 1.5 * a - b;
-    if (norm < 1e-6) { norm = 1e-6; }
-    disp = disp * (radius / norm);
-    // No strength(): the kelvinlet field IS its own falloff. unbounded_window()
-    // is what takes it to exactly zero at the host's node-filter radius (see
-    // @unbounded); masks() keeps automask / view-normal / painted mask acting,
-    // and the explicit sampleBrushTex() keeps texture parity with bounded
-    // kernels, which get it inside strength().
-    v.co += disp * (masks() * unbounded_window(v.co) * sampleBrushTex(v.co, surfaceNo));
+    if (radius <= 0.0) { continue; }
+    float window = unbounded_window(v.co);
+    if (window == 0.0) { continue; }
+    float forceScale = max(max(abs(grabTo.x), abs(grabTo.y)), abs(grabTo.z));
+    if (forceScale == 0.0) { continue; }
+    float3 p = v.co;
+    float3 r = p - grabFrom;
+    float eps = radius;
+    // Only large offsets need halving before subtraction. Keeping ordinary
+    // offsets unscaled avoids introducing subnormal half-radii at the origin.
+    float maxR = max(max(abs(r.x), abs(r.y)), abs(r.z));
+    if (maxR > 1e30) {
+      r = p * 0.5 - grabFrom * 0.5;
+      eps = radius * 0.5;
+    }
+    float rawNorm = 1.5 * a - b;
+    float norm = max(rawNorm, 1e-6);
+    float originGain = rawNorm / norm;
+    float3 disp = grabTo * originGain;
+    if (r.x != 0.0 || r.y != 0.0 || r.z != 0.0) {
+      float scale = max(max(abs(r.x), abs(r.y)), max(abs(r.z), eps));
+      float3 scaledR = r / scale;
+      float scaledEps = eps / scale;
+      float e = sqrt(dot(scaledR, scaledR) + scaledEps * scaledEps);
+      float3 q = scaledR / e;
+      float t = scaledEps / e;
+      // Formula (6), normalized using dimensionless distance/radius ratios.
+      // This removes radius squared and inverse-distance cubed intermediates.
+      float isotropic = t * (originGain - (0.5 * a / norm) * (1.0 - t * t));
+      float anisotropic = b / norm * t;
+      float3 force = grabTo / forceScale;
+      float3 contracted = force * isotropic + q * (dot(force, q) * anisotropic);
+      // In the declared material domain the field's absolute row sums are <= 1.
+      // Enforce that bound before restoring scale: near-origin rounding can
+      // otherwise produce one excess ulp and overflow a finite FLT_MAX force.
+      contracted = float3(clamp(contracted.x, -1.0, 1.0),
+                          clamp(contracted.y, -1.0, 1.0),
+                          clamp(contracted.z, -1.0, 1.0));
+      disp = contracted * forceScale;
+    }
+    // Excluded vertices never sample textures or contribute affected-vertex
+    // bookkeeping. The field origin remains independent of the window center.
+    v.co += disp * (masks() * window * sampleBrushTex(v.co, surfaceNo));
   }
 }

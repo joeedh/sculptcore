@@ -4,22 +4,17 @@
 #include "ir.h"
 #include "litestl/util/string.h"
 #include "litestl/util/vector.h"
+#include "props/prop_struct.h"
 
 namespace sculptcore::brush::sbrush {
 
-/** A scalar-float uniform resolved to the Brush.namedFloats store (not
- * member-backed); the registry dedupes these by name across all extras and
- * assigns dense kExtraSlot_<name> indices. */
-struct StoreUniform {
-  string name;
-  double def = 0.0; // DSL `= <n>` default (0 when absent)
-};
+using StoreUniform = props::ScalarDeclaration;
 
 /** One parsed extra kernel, in id order (id = SculptBrushesBuiltinCount + index). */
 struct RegistryEntry {
   string stem;     // input filename minus extension; includes <stem>.brush.gen.h
   string attrName; // @brush("name")
-  string cppName;  // brush <CppName> { ... }; factory is create<CppName>Brush
+  string cppName;  // brush <CppName> { ... }; kernelCppName resolves the factory stem.
   bool usesNeighbor = false;
   bool fullTopo = false;  // `@fulltopo`
   bool faceStage = false; // has a `face` stage, so it walks the face loop

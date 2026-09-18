@@ -1,5 +1,6 @@
 #include "emit_registry.h"
 
+#include "brush/named_uniform_store.h"
 #include "emit_wgsl.h"
 
 #include <cctype>
@@ -525,21 +526,23 @@ RegistryResult emitRegistry(const Vector<RegistryEntry> &extras,
     }
   }
 
-  // Named-float store slots: dedupe store uniforms by name across all extras
-  // (first-appearance order → dense per-build indices). Two kernels sharing a
-  // name share the slot, so their DSL defaults must agree.
+  // Shared names require identical declarations; slot order is first appearance.
   Vector<StoreUniform> slots;
   for (const auto &e : extras) {
     for (const auto &su : e.storeUniforms) {
+      if (!isIdentifier(su.name) ||
+          props::validateScalarDeclaration(su) != props::PropError::ERROR_NONE)
+      {
+        err(string("invalid scalar store declaration: ") + su.name);
+      }
       bool found = false;
       for (const auto &s : slots) {
         if (s.name == su.name) {
           found = true;
-          if (s.def != su.def) {
+          if (!s.compatible(su)) {
             err(string("store uniform \"") + su.name +
                 "\" is declared with conflicting "
-                "defaults in two extra kernels (shared name = shared slot; align the "
-                "`= <n>` defaults or rename one)");
+                "scalar declarations in two extra kernels");
           }
           break;
         }
@@ -547,6 +550,16 @@ RegistryResult emitRegistry(const Vector<RegistryEntry> &extras,
       if (!found) {
         slots.append(su);
       }
+    }
+  }
+
+  for (auto type : {props::Prop::FLOAT32, props::Prop::INT32, props::Prop::BOOL}) {
+    int count = 0;
+    for (const auto &slot : slots) {
+      count += slot.type == type;
+    }
+    if (count > kNamedUniformSlotLimit) {
+      err("extra uniform slot limit exceeded");
     }
   }
 
@@ -581,40 +594,86 @@ RegistryResult emitRegistry(const Vector<RegistryEntry> &extras,
     anyNeighbor = anyNeighbor || e.usesNeighbor;
   }
   h += "\n";
-  // Named-float store slots — declared before the kernel includes because the
-  // kernel templates reference kExtraSlot_<name> as a non-dependent name.
+  // Declare typed slots before kernel includes, which reference them directly.
   h += "namespace sculptcore::brush {\n\n";
-  h += string("inline constexpr int extraNamedFloatCount = ") + itoa((int)slots.size()) +
-       ";\n";
-  for (int i = 0; i < (int)slots.size(); i++) {
-    h += string("inline constexpr int kExtraSlot_") + slots[i].name + " = " + itoa(i) +
-         ";\n";
-  }
-  if (slots.size() > 0) {
-    h += string("inline constexpr float kExtraNamedFloatDefaults[") +
-         itoa((int)slots.size()) + "] = {";
-    for (int i = 0; i < (int)slots.size(); i++) {
+  struct StoreType {
+    props::Prop type;
+    const char *suffix;
+    const char *cppType;
+    const char *propName;
+  };
+  const StoreType types[] = {
+      {props::Prop::FLOAT32, "Float", "float", "FLOAT32"},
+      {props::Prop::INT32, "Int", "int32_t", "INT32"},
+      {props::Prop::BOOL, "Bool", "bool", "BOOL"},
+  };
+  for (const auto &type : types) {
+    Vector<StoreUniform> typed;
+    for (const auto &slot : slots) {
+      if (slot.type == type.type) {
+        typed.append(slot);
+      }
+    }
+    const string prefix = string("kExtraNamed") + type.suffix;
+    h += string("inline constexpr int extraNamed") + type.suffix +
+         "Count = " + itoa(int(typed.size())) + ";\n";
+    for (int i = 0; i < int(typed.size()); i++) {
+      h += string("inline constexpr int kExtraSlot_") + typed[i].name + " = " + itoa(i) +
+           ";\n";
+    }
+    if (typed.size() == 0) {
+      continue;
+    }
+    h += string("inline constexpr ") + type.cppType + " " + prefix + "Defaults[] = {";
+    for (int i = 0; i < int(typed.size()); i++) {
       if (i) {
         h += ", ";
       }
-      h += floatLit(slots[i].def);
+      double value = typed[i].hasDefault ? typed[i].defaultValue : 0.0;
+      if (type.type == props::Prop::FLOAT32) {
+        h += floatLit(value);
+      } else if (type.type == props::Prop::BOOL) {
+        h += value != 0 ? "true" : "false";
+      } else {
+        h += itoa(int(value));
+      }
+    }
+    h += "};\n";
+    h += string("inline constexpr NamedUniformDescriptor ") + prefix +
+         "Descriptors[] = {\n";
+    for (const auto &slot : typed) {
+      h += string("  {\"") + slot.name + "\", props::Prop::" + type.propName + ", " +
+           (slot.dynamic ? "true" : "false") + "},\n";
     }
     h += "};\n";
   }
-  h += "\n";
-  h += "/** Size the store and seed DSL defaults for the tail being grown —\n";
-  h += " * already-present slots are never rewritten, so values set before the\n";
-  h += " * first command creation (setNamedFloat) survive. */\n";
-  h += "inline void ensureExtraUniformDefaults(Brush &b)\n{\n";
-  if (slots.size() > 0) {
-    h += "  int old = (int)b.namedFloats.size();\n";
-    h += "  if (old >= extraNamedFloatCount) {\n    return;\n  }\n";
-    h += "  while ((int)b.namedFloats.size() < extraNamedFloatCount) {\n";
-    h += "    b.namedFloats.append(0.0f);\n  }\n";
-    h += "  for (int i = old; i < extraNamedFloatCount; i++) {\n";
-    h += "    b.namedFloats[i] = kExtraNamedFloatDefaults[i];\n  }\n";
-  } else {
-    h += "  (void)b;\n";
+  h += "\ninline const NamedUniformDescriptor "
+       "*generatedExtraNamedUniformDescriptor(props::Prop type, int slot)\n{\n";
+  h += "  (void)type; (void)slot;\n";
+  for (const auto &type : types) {
+    bool present = false;
+    for (const auto &slot : slots) {
+      present |= slot.type == type.type;
+    }
+    if (present) {
+      h += string("  if (type == props::Prop::") + type.propName +
+           " && slot >= 0 && slot < extraNamed" + type.suffix + "Count) {\n";
+      h += string("    return &kExtraNamed") + type.suffix + "Descriptors[slot];\n  }\n";
+    }
+  }
+  h += "  return nullptr;\n}\n\n";
+  h += "/** Initialize untouched slots, preserving every existing working value. */\n";
+  h += "inline void ensureExtraUniformDefaults(Brush &b)\n{\n  (void)b;\n";
+  for (const auto &type : types) {
+    bool present = false;
+    for (const auto &slot : slots) {
+      present |= slot.type == type.type;
+    }
+    if (present) {
+      h += string("  for (int i = 0; i < extraNamed") + type.suffix + "Count; i++) {\n";
+      h += string("    b.ensureNamed") + type.suffix + "Default(i, kExtraNamed" +
+           type.suffix + "Defaults[i]);\n  }\n";
+    }
   }
   h += "}\n\n";
   h += "} // namespace sculptcore::brush\n\n";
@@ -709,7 +768,8 @@ RegistryResult emitRegistry(const Vector<RegistryEntry> &extras,
     for (int i = 0; i < (int)extras.size(); i++) {
       const RegistryEntry &e = extras[i];
       h += string("  case ") + itoa(i) + ": // " + e.stem + "\n";
-      string factory = string("create") + e.cppName + "Brush<TYPES, ";
+      string factory =
+          string("create") + kernelCppName(e.attrName, e.cppName) + "Brush<TYPES, ";
       string ind = e.faceStage ? string("    ") : string("  ");
       if (e.faceStage) {
         h += "    if constexpr (!TYPES::supportsFaceStages) {\n";

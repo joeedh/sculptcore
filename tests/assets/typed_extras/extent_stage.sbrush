@@ -1,0 +1,8 @@
+@brush("extentStage")
+brush ExtentStage {
+  uniform float unboundedExtent;
+  vertex void apply(inout Vertex v) {
+    if (strength(v.co) == 0.0) { continue; }
+    v.co += float3(0.0, 0.0, unboundedExtent * 0.01);
+  }
+}

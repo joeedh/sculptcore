@@ -58,10 +58,12 @@ static void createEnhanceBrush(BrushCommandDef<CommandCtx<TYPES>> &def)
   def.execPre  = enhancePre<TYPES>;
   def.exec     = enhance<TYPES, AccMode>;
   def.execPost = enhancePost<TYPES>;
+  def.preparedHostNoop = true;
+  def.preparedScalarSafe = true;
   def.accumulable = true;
   def.attrs.append(sculptcore::brush::BrushAttrManifestEntry{"edisp", ".brush.enhance.disp", sculptcore::mesh::AttrType::FLOAT3, sculptcore::brush::AttrElemDomain::Vertex, true, false, 0});
-  def.registerProps = [](sculptcore::props::StructDef &sd) {
-  };
+  def.uniforms.append(sculptcore::brush::BrushUniformManifestEntry{"enhance_rings", false, false, 0.0, false, 0.0, 0.0, -1, sculptcore::props::Prop::INT32, false});
+  def.uniforms.append(sculptcore::brush::BrushUniformManifestEntry{"enhance_inner", false, false, 0.0, false, 0.0, 0.0, -1, sculptcore::props::Prop::INT32, false});
   def.loadUniformProps = [](sculptcore::brush::Brush &brush, sculptcore::props::DeviceInputCtx *ctx) {
   };
 }
@@ -74,6 +76,8 @@ inline void packEnhanceGpuUniforms(sculptcore::brush::Brush &brush, unsigned cha
 {
   (void)brush;
   (void)out;
+  std::memcpy(out + 72, &brush.enhance_rings, 4);
+  std::memcpy(out + 76, &brush.enhance_inner, 4);
 }
 
 } // namespace sculptcore::brush::command

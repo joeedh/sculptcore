@@ -73,13 +73,12 @@ static void createSnakehookBrush(BrushCommandDef<CommandCtx<TYPES>> &def)
   def.execPre  = snakehookPre<TYPES>;
   def.exec     = snakehook<TYPES, AccMode>;
   def.execPost = snakehookPost<TYPES>;
+  def.preparedHostNoop = true;
+  def.preparedScalarSafe = true;
   def.accumulable = false;
   def.incremental = true;
-  def.uniforms.append(sculptcore::brush::BrushUniformManifestEntry{"radius", true, true, 0.0f, false, 0.0f, 0.0f});
-  def.uniforms.append(sculptcore::brush::BrushUniformManifestEntry{"pinch", true, false, 0.0f, false, 0.0f, 0.0f});
-  def.registerProps = [](sculptcore::props::StructDef &sd) {
-    if (!sd.has("radius")) sd.Float32("radius", "radius").Default(0.0f);
-  };
+  def.uniforms.append(sculptcore::brush::BrushUniformManifestEntry{"radius", true, true, 0.0, false, 0.0, 0.0, -1, sculptcore::props::Prop::FLOAT32, false});
+  def.uniforms.append(sculptcore::brush::BrushUniformManifestEntry{"pinch", true, false, 0.0, false, 0.0, 0.0, -1, sculptcore::props::Prop::FLOAT32, false});
   def.loadUniformProps = [](sculptcore::brush::Brush &brush, sculptcore::props::DeviceInputCtx *ctx) {
     brush.radius = brush.props.lookupValue<float>("radius", 0.0f, ctx);
   };

@@ -1,0 +1,15 @@
+@brush("namedStorageTest")
+brush NamedStorageTest {
+  uniform float storage_gain = 2.0 @range(0.0, 10.0);
+  ctx float storage_work;
+
+  host void prepare() {
+    storage_work = storage_gain;
+    storage_work += 1.0;
+    storage_gain *= 2.0;
+  }
+
+  vertex void apply(inout Vertex v) {
+    v.co += float3(storage_gain, 0.0, 0.0);
+  }
+}

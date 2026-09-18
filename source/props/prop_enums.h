@@ -43,6 +43,12 @@ enum class PropError {
   ERROR_NONE = 0,
   ERROR_INVALID_TYPE = 1 << 0,
   ERROR_NOT_EXISTS = 1 << 1,
+  ERROR_INVALID_VALUE = 1 << 2,
+  ERROR_READ_ONLY = 1 << 3,
+  ERROR_INVALID_DYNAMICS = 1 << 4,
+  ERROR_INVALID_OWNER = 1 << 5,
+  ERROR_SCHEMA_CONFLICT = 1 << 6,
+  ERROR_STALE_QUERY = 1 << 7,
 };
 
 FlagOperators(PropError);

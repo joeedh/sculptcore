@@ -24,7 +24,7 @@ set(SBRUSHC_CORE_SRC
 
 add_library(sbrushc_core STATIC ${SBRUSHC_CORE_SRC})
 
-target_link_libraries(sbrushc_core PUBLIC util math)
+target_link_libraries(sbrushc_core PUBLIC util math props)
 target_include_directories(sbrushc_core PUBLIC
   ${CMAKE_SOURCE_DIR}/source
 )

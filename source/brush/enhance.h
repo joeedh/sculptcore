@@ -38,7 +38,7 @@ struct EnhanceParams {
   // Outer smoothing depth (N) — the low-pass cutoff / feature scale.
   int rings = 4;
   // Inner smoothing depth (m): 0 = classic unsharp (high-pass), >=1 = difference-
-  // of-smooths band-pass (default; rejects per-vertex noise). Clamped to < rings.
+  // of-smooths band-pass (default; rejects per-vertex noise). Clamped to <= rings.
   int inner = 1;
 };
 
@@ -82,8 +82,12 @@ computeEnhanceDisp(mesh::Mesh *m, int v0, const EnhanceParams &p, EnhanceScratch
     inner = outer;
   }
 
-  scr.ensure(m->v.count);
-  scr.token++;
+  scr.ensure(int(m->v.capacity()));
+  if (++scr.token == 0) {
+    for (auto &stamp : scr.visitStamp)
+      stamp = 0;
+    scr.token = 1;
+  }
   const uint32_t tok = scr.token;
 
   float3 innerSum{0, 0, 0}, outerSum{0, 0, 0}, normalSum{0, 0, 0};
@@ -105,7 +109,7 @@ computeEnhanceDisp(mesh::Mesh *m, int v0, const EnhanceParams &p, EnhanceScratch
   scr.frontier.append(v0);
   visit(v0, 0);
 
-  for (int depth = 1; depth <= outer; depth++) {
+  for (uint32_t depth = 1; depth <= uint32_t(outer); depth++) {
     scr.nextFrontier.clear();
     for (int u : scr.frontier) {
       uint32_t off = csr.offsets[u];

@@ -32,6 +32,7 @@
 
 #include "brush/brush.h"
 #include "brush/brush_executor.h"
+#include "c-api/dab_inputs.h"
 #include "litestl/util/string.h"
 #include "litestl/util/vector.h"
 #include "mesh/mesh.h"
@@ -141,6 +142,9 @@ struct CageSmoothSession {
 
     exec.setStrokeGen(1);
     exec.beginStep(false);
+    slotMesh_ = slot->mesh;
+    derivedGeneration_ = mr->gridAttrs().generation();
+    domainGeneration_ = mr->domainGeneration();
     begun_ = true;
     return true;
   }
@@ -157,13 +161,24 @@ struct CageSmoothSession {
                float pressure,
                bool usePressure,
                const float *signs,
-               int mirrorCount)
+               int mirrorCount,
+               bool preserveInputs = false)
   {
     mesh::Mesh *cage = mr ? mr->cage() : nullptr;
-    if (!begun_ || !cage || !dabs || n < 1) {
+    if (!begun_ || !cage || !dabs || n < 1 || n > INT_MAX / 7) {
       return -1;
     }
-    ensureOverrides(tool, cage);
+    const float sample[6] = {usePressure ? pressure : 0,
+                             0,
+                             0,
+                             0,
+                             usePressure ? 1.0f : 0.0f,
+                             invert ? 1.0f : 0.0f};
+    for (int i = 0; i < n; ++i)
+      if (!validDabInputs(1, dabs + i * 7, strength, sample, signs, mirrorCount))
+        return -1;
+    if (!exec.preflightRaw(SculptBrushes(tool)))
+      return -1;
     auto *coData = cage->v.co.get_data();
     int total = 0;
     auto oneImage = [&](math::float3 center, math::float3 normal, float radius) {
@@ -171,7 +186,7 @@ struct CageSmoothSession {
       const float row[4] = {center[0], center[1], center[2], radius};
       mr->dabGrids(level, row, 1, dabGridsOut_);
       if (dabGridsOut_.size() == 0) {
-        return;
+        return true;
       }
       node_.data->unique_verts = util::OrderedSet<int>();
       for (int g : dabGridsOut_) {
@@ -184,36 +199,53 @@ struct CageSmoothSession {
       std::swap(coData->pages, limitCo_.pages);
       exec.setGrabAccumAdd(false);
       exec.execBrush(cage, SculptBrushes(tool), &nodes_, center, normal);
-      exec.clearIsFirstOfStep();
       std::swap(coData->pages, limitCo_.pages);
+      if (!exec.lastUniformValidationOk())
+        return false;
+      exec.clearIsFirstOfStep();
 
       total += int(node_.data->unique_verts.size());
       if (node_.affected_verts.size() > 0) {
         epilogue();
       }
+      return true;
     };
     for (int i = 0; i < n; i++) {
       const float *d = dabs + i * 7;
+      DabInputOverlay overlay(*brush);
+      if (!overlay.valid())
+        return -1;
       // Rewritten every dab: loadProps assigns post-dynamics values back into
       // the Brush fields (see mapping.apply_dab_state host-side).
       brush->strength = strength;
       brush->radius = d[6];
       brush->invert = invert;
-      brush->writeProps();
+      brush->writeDabProps();
+      if (!preserveInputs)
+        brush->clearDeviceInputs();
       if (usePressure) {
         brush->clearDeviceInputs();
         brush->pushDeviceInput(int(props::DeviceType::PRESSURE), pressure);
       }
-      oneImage(math::float3(d[0], d[1], d[2]), math::float3(d[3], d[4], d[5]), d[6]);
+      if (!exec.preflightRaw(SculptBrushes(tool)))
+        return -1;
+      ensureOverrides(tool, cage);
+      if (!oneImage(math::float3(d[0], d[1], d[2]), math::float3(d[3], d[4], d[5]), d[6]))
+        return -1;
       for (int mi = 0; mi < mirrorCount; mi++) {
         const float *sg = signs + mi * 3;
-        oneImage(math::float3(d[0] * sg[0], d[1] * sg[1], d[2] * sg[2]),
-                 math::float3(d[3] * sg[0], d[4] * sg[1], d[5] * sg[2]),
-                 d[6]);
+        if (!oneImage(math::float3(d[0] * sg[0], d[1] * sg[1], d[2] * sg[2]),
+                      math::float3(d[3] * sg[0], d[4] * sg[1], d[5] * sg[2]),
+                      d[6]))
+          return -1;
       }
+      overlay.commit();
     }
     return total;
   }
+
+  bool supportsResolved(int tool);
+  int dabResolved(int tool, math::float3 center, math::float3 normal, bool validateOnly = false);
 
   /** Close the executor step and restore the brush's saved policy bits.
    * Idempotent; the destructor calls it too. */
@@ -340,6 +372,9 @@ private:
   Vector<uint8_t> moved_;
   Vector<uint8_t> seen_;
   int toolHint_ = -1;
+  mesh::Mesh *slotMesh_ = nullptr;
+  uint64_t derivedGeneration_ = 0;
+  uint64_t domainGeneration_ = 0;
   bool begun_ = false;
   bool savedCavity_ = false;
   bool savedReprojectUvs_ = false;

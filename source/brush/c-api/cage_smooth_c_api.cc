@@ -29,6 +29,34 @@ void CageSmooth_free(CageSmoothSession *s)
   }
 }
 
+/** One dab using the fresh device sample already uploaded by the host. */
+int CageSmooth_dabCurrentInputs(CageSmoothSession *s,
+                                int tool,
+                                const float *dab,
+                                float strength)
+{
+  return s ? s->dabBatch(
+                 tool, 1, dab, strength, s->brush->invert, 1, false, nullptr, 0, true)
+           : -1;
+}
+
+int CageSmooth_supportsResolved(CageSmoothSession *s, int tool)
+{
+  return s && s->supportsResolved(tool);
+}
+
+int CageSmooth_dabResolved(CageSmoothSession *s,
+                           int tool,
+                           float x,
+                           float y,
+                           float z,
+                           float nx,
+                           float ny,
+                           float nz)
+{
+  return s ? s->dabResolved(tool, {x, y, z}, {nx, ny, nz}) : -1;
+}
+
 /** Stroke-begin setup against the cage colour column `name` (ensured, and
  * white-flooded when fresh). 1 on success; 0 when the level has no
  * materialized slot mesh + tree, or the session is already begun. */

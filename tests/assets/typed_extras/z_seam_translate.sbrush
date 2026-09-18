@@ -1,0 +1,8 @@
+@brush("seamTranslate")
+brush SeamTranslate {
+  uniform float radius;
+
+  vertex void apply(inout Vertex v) {
+    v.co += float3(20.0, 0.0, 0.0);
+  }
+}

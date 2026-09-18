@@ -65,12 +65,12 @@ static void createColorsmoothBrush(BrushCommandDef<CommandCtx<TYPES>> &def)
   def.execPre  = colorsmoothPre<TYPES>;
   def.exec     = colorsmooth<TYPES, NbrSrc, AccMode>;
   def.execPost = colorsmoothPost<TYPES>;
+  def.preparedHostNoop = true;
+  def.preparedScalarSafe = true;
   def.needsCoPrev = true;
   def.accumulable = false;
   def.relaxesBase = true;
   def.attrs.append(sculptcore::brush::BrushAttrManifestEntry{"color", "", sculptcore::mesh::AttrType::FLOAT4, sculptcore::brush::AttrElemDomain::Vertex, true, true, int(sculptcore::mesh::AttrUse::COLOR)});
-  def.registerProps = [](sculptcore::props::StructDef &sd) {
-  };
   def.loadUniformProps = [](sculptcore::brush::Brush &brush, sculptcore::props::DeviceInputCtx *ctx) {
   };
 }

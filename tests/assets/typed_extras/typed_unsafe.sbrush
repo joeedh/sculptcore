@@ -1,0 +1,8 @@
+@brush("typedUnsafe")
+brush TypedUnsafe {
+  uniform float radius;
+  vertex void apply(inout Vertex v) {
+    radius *= 2.0;
+    v.co += float3(1.0, 0.0, 0.0);
+  }
+}

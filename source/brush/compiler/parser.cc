@@ -378,8 +378,13 @@ struct Parser {
       f.name = peek().text;
       advance();
       if (match(TokKind::Assign)) {
-        if (parseSignedNumber(f.defaultValue))
+        if (ty == TypeKind::Bool && (check(TokKind::KwTrue) || check(TokKind::KwFalse))) {
+          f.defaultValue = check(TokKind::KwTrue) ? 1.0 : 0.0;
           f.hasDefault = true;
+          advance();
+        } else if (parseSignedNumber(f.defaultValue)) {
+          f.hasDefault = true;
+        }
       }
       while (match(TokKind::At)) {
         if (!check(TokKind::Ident)) {
@@ -397,8 +402,16 @@ struct Parser {
           expect(TokKind::RParen, "to close @range(...)");
           f.hasRange = true;
         } else if (attr.operator==(string("static"))) {
+          if (f.dynamicExplicit) {
+            error("@static conflicts with @dynamic", attrTok);
+          }
+          f.staticExplicit = true;
           f.dynamicCapable = false;
         } else if (attr.operator==(string("dynamic"))) {
+          if (f.staticExplicit) {
+            error("@dynamic conflicts with @static", attrTok);
+          }
+          f.dynamicExplicit = true;
           f.dynamicCapable = true;
         } else {
           errorf(attrTok, "unknown field attribute '%s'", attr.c_str());

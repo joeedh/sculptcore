@@ -17,27 +17,16 @@ using litestl::util::Assert;
 
 void GridStrokeLog::attach(GridLevelDomain *d)
 {
+  stepSerial_++;
   d_ = d;
   tree_ = d ? d->ensureTree() : nullptr;
   steps_.clear();
   cursor_ = 0;
   open_ = false;
-  gen_ = 0;
-  leafStamp_.clear();
-  gridStamp_.clear();
-  gridChannels_.clear();
-  if (d_) {
-    leafStamp_.resize(tree_->leaves.size());
-    gridStamp_.resize(d_->gridCount());
-    gridChannels_.resize(d_->gridCount());
-    for (int i = 0; i < int(leafStamp_.size()); i++) {
-      leafStamp_[i] = 0;
-    }
-    for (int i = 0; i < int(gridStamp_.size()); i++) {
-      gridStamp_[i] = 0;
-      gridChannels_[i] = 0;
-    }
-  }
+  leafCaptured_.clear();
+  captured_.clear();
+  debtCaptured_.clear();
+  leafCaptured_.clear();
 }
 
 void GridStrokeLog::beginStep()
@@ -51,44 +40,105 @@ void GridStrokeLog::beginStep()
   Step &s = steps_.last();
   s.preDebt = d_->multires()->downPropDebt(d_->level());
   snapshotAttrDebt(s.preAttrDebt);
+  for (const auto &debt : s.preAttrDebt) {
+    debtCaptured_.add(debt.levelToken);
+  }
   open_ = true;
-  gen_++;
+  stepSerial_++;
+}
+
+GridStrokeLog::ChannelIdentity GridStrokeLog::identity(int channel, int level) const
+{
+  const auto &ch = d_->multires()->store.channels_[channel];
+  return {ch.name, ch.incarnation, ch.levels[level - 1].incarnation, level};
+}
+
+int GridStrokeLog::resolve(const ChannelIdentity &id) const
+{
+  const auto &store = d_->multires()->store;
+  int channel = store.findChannel(id.channel);
+  if (channel < 0 || id.level < 1 || id.level > store.levelCount()) {
+    return -1;
+  }
+  const auto &ch = store.channels_[channel];
+  return ch.incarnation == id.channelToken &&
+                 ch.levels[id.level - 1].incarnation == id.levelToken
+             ? channel
+             : -1;
+}
+
+GridStrokeLog::GridBlock GridStrokeLog::captureBlock(int grid, int channel, int level)
+{
+  auto &store = d_->multires()->store;
+  int floats = store.channelElemsPerGrid(level, channel) * store.channelElemSize(channel);
+  GridBlock b;
+  static_cast<ChannelIdentity &>(b) = identity(channel, level);
+  b.grid = grid;
+  b.data.resize(floats);
+  const float *src = store.elem(level, channel, grid, 0, 0);
+  std::memcpy(b.data.data(), src, size_t(floats) * sizeof(float));
+  return b;
 }
 
 void GridStrokeLog::captureGridBlock(Step &s, int grid, int channel)
 {
-  // A stroke can capture the same grid on several channels (positions + mask),
-  // so the stamp carries a bitmask of the channels taken. Scanning s.blocks for
-  // that instead made the dedup quadratic over the touched-grid set.
-  const uint32_t bit = channel < 32 ? uint32_t(1) << channel : 0;
-  if (gridStamp_[grid] != gen_) {
-    gridStamp_[grid] = gen_;
-    gridChannels_[grid] = 0;
-  } else if (bit) {
-    if (gridChannels_[grid] & bit) {
-      return;
+  const auto id = identity(channel, d_->level());
+  if (debtCaptured_.add(id.levelToken)) {
+    AttrDebt debt;
+    static_cast<ChannelIdentity &>(debt) = id;
+    debt.debt = d_->multires()->store.channelLevelDebt(d_->level(), channel);
+    s.preAttrDebt.append(std::move(debt));
+  }
+  if (!captured_[id.levelToken].add(grid)) {
+    return;
+  }
+  s.blocks.append(captureBlock(grid, channel, d_->level()));
+}
+
+void GridStrokeLog::captureFinerMask(std::span<const int> grids, int channel)
+{
+  Assert(open_, "captureFinerMask inside a step");
+  auto &store = d_->multires()->store;
+  Assert(channel >= 0 && channel < store.channelCount(),
+         "mask channel exists before fold");
+  const auto &ch = store.channels_[channel];
+  Assert(ch.name == litestl::util::string(GridLevelDomain::kMaskChannelName) &&
+             ch.type == mesh::AttrType::FLOAT && ch.domain == GridElemDomain::Vertex &&
+             ch.floatsPerElem == 1,
+         "compatible mask channel");
+  if (grids.empty()) {
+    return;
+  }
+  Step &s = steps_.last();
+  for (int level = d_->level() + 1; level <= store.levelCount(); level++) {
+    const auto id = identity(channel, level);
+    FinerMask *snap = nullptr;
+    for (auto &entry : s.finerMask) {
+      if (entry.levelToken == id.levelToken) {
+        snap = &entry;
+        break;
+      }
     }
-  } else {
-    for (const GridBlock &b : s.blocks) { // channel >= 32: no bit to spend
-      if (b.grid == grid && b.channel == d_->multires()->store.channelName(channel)) {
-        return;
+    if (!snap) {
+      s.finerMask.append(FinerMask());
+      snap = &s.finerMask.last();
+      static_cast<ChannelIdentity &>(*snap) = id;
+      snap->debt = store.channelLevelDebt(level, channel);
+      snap->wholeLevel = !store.channelLevelAllocated(level, channel);
+      if (snap->wholeLevel) {
+        // This copy holds no buffers and preserves the actual empty metadata.
+        snap->state = store.channels_[channel].levels[level - 1];
+      }
+    }
+    if (!snap->wholeLevel) {
+      for (int grid : grids) {
+        if (!snap->captured.contains(grid)) {
+          snap->captured.add(grid);
+          snap->blocks.append(captureBlock(grid, channel, level));
+        }
       }
     }
   }
-  gridChannels_[grid] |= bit;
-
-  Multires *mr = d_->multires();
-  int level = d_->level();
-  mr->store.ensureLevelResident(level);
-  int floats =
-      mr->store.channelElemsPerGrid(level, channel) * mr->store.channelElemSize(channel);
-  GridBlock b;
-  b.grid = grid;
-  b.channel = mr->store.channelName(channel);
-  b.data.resize(floats);
-  const float *src = mr->store.elem(level, channel, grid, 0, 0);
-  std::memcpy(b.data.data(), src, size_t(floats) * sizeof(float));
-  s.blocks.append(std::move(b));
 }
 
 void GridStrokeLog::captureLeaf(int leaf, bool positions, bool maskToo)
@@ -96,34 +146,28 @@ void GridStrokeLog::captureLeaf(int leaf, bool positions, bool maskToo)
   Assert(open_, "captureLeaf inside a step");
   Step &s = steps_.last();
 
-  LeafSnap *snap = nullptr;
-  if (leafStamp_[leaf] == gen_) {
-    for (LeafSnap &ls : s.leaves) {
-      if (ls.leaf == leaf) {
-        snap = &ls;
-        break;
-      }
-    }
-    if (snap && snap->hasPos >= positions && snap->hasMask >= maskToo) {
-      return;
-    }
+  const ChannelIdentity maskId =
+      maskToo ? identity(d_->ensureMaskChannel(), d_->level()) : ChannelIdentity();
+  auto &captured = leafCaptured_[leaf];
+  const bool needPos = positions && !captured.position;
+  const bool needMask = maskToo && captured.masks.add(maskId.levelToken);
+  captured.position |= positions;
+  if (!needPos && !needMask) {
+    return;
   }
-  leafStamp_[leaf] = gen_;
-  if (!snap) {
-    s.leaves.append(LeafSnap());
-    snap = &s.leaves.last();
-    snap->leaf = leaf;
-  }
-
+  s.leaves.append(LeafSnap());
+  LeafSnap *snap = &s.leaves.last();
+  snap->leaf = leaf;
   const GridTree::Leaf &tl = tree_->leaves[leaf];
-  if (positions && !snap->hasPos) {
+  if (needPos) {
     snap->hasPos = true;
     snap->pos.resize(tl.ownedVerts.size());
     for (int i = 0; i < int(tl.ownedVerts.size()); i++) {
       snap->pos[i] = d_->pos()[tl.ownedVerts[i]];
     }
   }
-  if (maskToo && !snap->hasMask) {
+  if (needMask) {
+    snap->maskIdentity = maskId;
     snap->hasMask = true;
     snap->mask.resize(tl.ownedVerts.size());
     for (int i = 0; i < int(tl.ownedVerts.size()); i++) {
@@ -148,39 +192,49 @@ void GridStrokeLog::endStep(bool postDebt)
 {
   Assert(open_, "endStep pairs with beginStep");
   open_ = false;
+  leafCaptured_.clear();
+  captured_.clear();
+  debtCaptured_.clear();
   Step &s = steps_.last();
-  if (s.leaves.size() == 0 && s.blocks.size() == 0) {
+  if (s.leaves.size() == 0 && s.blocks.size() == 0 && s.finerMask.isEmpty()) {
     steps_.pop_back();
     return;
+  }
+  for (auto &fine : s.finerMask) {
+    fine.captured.clear();
+    const int channel = resolve(fine);
+    if (fine.wholeLevel && channel >= 0) {
+      const auto &store = d_->multires()->store;
+      if (store.channelLevelAllocated(fine.level, channel)) {
+        fine.owningReserve = size_t(store.gridCount()) *
+                             store.channelElemsPerGrid(fine.level, channel) *
+                             sizeof(float);
+      }
+    }
   }
   s.postDebt = postDebt;
   snapshotAttrDebt(s.postAttrDebt);
   cursor_ = int(steps_.size());
 }
 
-void GridStrokeLog::snapshotAttrDebt(Vector<litestl::util::string> &out)
+void GridStrokeLog::snapshotAttrDebt(Vector<AttrDebt> &out)
 {
-  Multires *mr = d_->multires();
-  const int level = d_->level();
+  const auto &store = d_->multires()->store;
   out.clear();
-  for (int c = 0; c < mr->store.channelCount(); c++) {
-    if (mr->store.channelLevelDebt(level, c)) {
-      out.append(mr->store.channelName(c));
-    }
+  for (int c = 0; c < store.channelCount(); c++) {
+    AttrDebt debt;
+    static_cast<ChannelIdentity &>(debt) = identity(c, d_->level());
+    debt.debt = store.channelLevelDebt(d_->level(), c);
+    out.append(std::move(debt));
   }
 }
 
-void GridStrokeLog::applyAttrDebt(const Vector<litestl::util::string> &names)
+void GridStrokeLog::applyAttrDebt(const Vector<AttrDebt> &debts)
 {
-  Multires *mr = d_->multires();
-  const int level = d_->level();
-  for (int c = 0; c < mr->store.channelCount(); c++) {
-    mr->store.setChannelLevelDebt(level, c, false);
-  }
-  for (const litestl::util::string &nm : names) {
-    const int c = mr->store.findChannel(nm);
-    if (c >= 0) {
-      mr->store.setChannelLevelDebt(level, c, true);
+  for (const auto &debt : debts) {
+    int channel = resolve(debt);
+    if (channel >= 0) {
+      d_->multires()->store.setChannelLevelDebt(debt.level, channel, debt.debt);
     }
   }
 }
@@ -191,26 +245,26 @@ void GridStrokeLog::applySwap(Step &s)
   int level = d_->level();
   mr->store.ensureLevelResident(level);
 
-  Vector<int> touchedLeaves;
   Vector<int> touchedVerts;
-  Vector<GridBlock *> swappedSession;
+  bool maskChanged = !s.finerMask.isEmpty();
+  litestl::util::Map<int, Vector<int>> swappedSession;
   for (LeafSnap &ls : s.leaves) {
     const GridTree::Leaf &tl = tree_->leaves[ls.leaf];
-    touchedLeaves.append(ls.leaf);
     if (ls.hasPos) {
       for (int i = 0; i < int(tl.ownedVerts.size()); i++) {
         std::swap(ls.pos[i], d_->pos()[tl.ownedVerts[i]]);
         touchedVerts.append(tl.ownedVerts[i]);
       }
     }
-    if (ls.hasMask) {
+    if (ls.hasMask && resolve(ls.maskIdentity) >= 0) {
+      maskChanged = true;
       for (int i = 0; i < int(tl.ownedVerts.size()); i++) {
         std::swap(ls.mask[i], d_->mask[tl.ownedVerts[i]]);
       }
     }
   }
   for (GridBlock &b : s.blocks) {
-    const int channel = mr->store.findChannel(b.channel);
+    const int channel = resolve(b);
     if (channel < 0) {
       continue; // the channel was dropped since capture: nothing to restore to
     }
@@ -226,14 +280,35 @@ void GridStrokeLog::applySwap(Step &s)
     if (mr->store.channelAuthored(channel)) {
       // An authored channel is what the draw path's derived samples mirror, so
       // the swap has to be pushed back out to them (no-op for the rest).
-      swappedSession.append(&b);
+      swappedSession[channel].append(b.grid);
+    }
+  }
+
+  mr->invalidateAbove(level);
+  for (auto &snap : s.finerMask) {
+    const int channel = resolve(snap);
+    if (channel < 0) {
+      continue;
+    }
+    auto &live = mr->store.channels_[channel].levels[snap.level - 1];
+    if (snap.wholeLevel) {
+      std::swap(snap.state, live);
+    } else {
+      for (auto &block : snap.blocks) {
+        float *dst = mr->store.elem(snap.level, channel, block.grid, 0, 0);
+        for (size_t i = 0; i < block.data.size(); i++) {
+          std::swap(block.data[i], dst[i]);
+        }
+      }
+      std::swap(snap.debt, live.downPending);
     }
   }
 
   if (touchedVerts.size() > 0) {
     d_->refreshNormals(std::span<const int>(touchedVerts.data(), touchedVerts.size()));
   }
-  tree_->refreshBounds(std::span<const int>(touchedLeaves.data(), touchedLeaves.size()));
+  tree_->refreshVertexBounds(
+      std::span<const int>(touchedVerts.data(), touchedVerts.size()));
   if (GridDrawSource *ds = mr->drawSource()) {
     // Drawn pos/no/mask of the swapped leaves changed — mark by owned verts
     // (occurrence mapping also reaches the neighbor cells reading them).
@@ -248,30 +323,18 @@ void GridStrokeLog::applySwap(Step &s)
   }
   /* One pass per distinct session channel: the derived samples the draw path
    * reads mirror the channel, so a swap has to be pushed back out to them. */
-  for (size_t i = 0; i < swappedSession.size(); i++) {
-    const litestl::util::string &name = swappedSession[i]->channel;
-    bool seen = false;
-    for (size_t j = 0; j < i && !seen; j++) {
-      seen = swappedSession[j]->channel == name;
-    }
-    if (seen) {
-      continue;
-    }
-    Vector<int> grids;
-    for (GridBlock *b : swappedSession) {
-      if (b->channel == name) {
-        grids.append(b->grid);
-      }
-    }
+  for (auto &entry : swappedSession) {
+    const auto &name = mr->store.channelName(entry.key);
+    auto &grids = swappedSession[entry.key];
     mr->gridAttrs().refreshSamplesFromChannel(
         name, level, grids.data(), int(grids.size()));
     if (GridDrawSource *ds = mr->drawSource()) {
       ds->markGrids(std::span<const int>(grids.data(), grids.size()));
     }
   }
-  // Finer levels derive from this one's positions; the swapped state is new
-  // to them either way.
-  mr->invalidateAbove(level);
+  if (maskChanged) {
+    mr->noteMaskChange();
+  }
 }
 
 bool GridStrokeLog::undo()
@@ -322,6 +385,52 @@ size_t GridStrokeLog::bytes() const
     }
     for (const GridBlock &b : s.blocks) {
       n += b.data.size() * sizeof(float);
+    }
+    for (const auto &snap : s.finerMask) {
+      for (const auto &block : snap.blocks) {
+        n += block.data.size() * sizeof(float);
+      }
+      for (const auto &chunk : snap.state.chunks) {
+        n += chunk.size() * sizeof(float);
+      }
+      n += snap.state.evicted.size();
+    }
+  }
+  return n;
+}
+
+size_t GridStrokeLog::retainedBytes() const
+{
+  size_t n = bytes();
+  for (const Step &s : steps_) {
+    n += sizeof(Step);
+    for (const auto &leaf : s.leaves) {
+      n += sizeof(LeafSnap) + leaf.maskIdentity.channel.capacity() + 1;
+    }
+    for (const auto &b : s.blocks) {
+      n += sizeof(GridBlock) + b.channel.capacity() + 1;
+    }
+    for (const auto &fine : s.finerMask) {
+      n += sizeof(FinerMask) + fine.channel.capacity() + 1;
+      n += fine.state.chunks.size() * sizeof(Vector<float>);
+      // Charge stroke-created levels when the step closes: Blender's undo
+      // budget receives a fixed size at push, before undo moves them here.
+      size_t held = fine.state.evicted.size();
+      for (const auto &chunk : fine.state.chunks) {
+        held += chunk.size() * sizeof(float);
+      }
+      if (fine.owningReserve > held) {
+        n += fine.owningReserve - held;
+      }
+      for (const auto &b : fine.blocks) {
+        n += sizeof(GridBlock) + b.channel.capacity() + 1;
+      }
+    }
+    for (const auto &debt : s.preAttrDebt) {
+      n += sizeof(AttrDebt) + debt.channel.capacity() + 1;
+    }
+    for (const auto &debt : s.postAttrDebt) {
+      n += sizeof(AttrDebt) + debt.channel.capacity() + 1;
     }
   }
   return n;

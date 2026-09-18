@@ -11,7 +11,39 @@
 #include "litestl/util/vector.h"
 #include "props/prop_types.h"
 
+#include <span>
+
 namespace sculptcore::props {
+
+/** Declared metadata is independent of mutable authored values. */
+struct ScalarDeclaration {
+  util::string name;
+  Prop type = Prop::INVALID_TYPE;
+  bool hasDefault = false;
+  double defaultValue = 0;
+  bool hasRange = false;
+  double rangeMin = 0;
+  double rangeMax = 0;
+  bool dynamic = false;
+
+  bool compatible(const ScalarDeclaration &other) const;
+};
+
+struct ScalarRegistrationResult {
+  PropError error = PropError::ERROR_NONE;
+  util::string name;
+};
+
+PropError validateScalarDeclaration(const ScalarDeclaration &declaration);
+
+struct ScalarDomain {
+  double min = 0;
+  double max = 0;
+  double initial = 0;
+};
+
+/** Normalize typed bounds/defaults; preserve output on failure. */
+PropError normalizeScalarDeclaration(const ScalarDeclaration &declaration, ScalarDomain &domain);
 
 namespace struct_detail_2 {
 /* very evil attempt to resolve circular reference with prop_coerce.h*/
@@ -21,6 +53,14 @@ const T lookupValue(void *struct_def,
                     util::string &name,
                     T default_value,
                     DeviceInputCtx *ctx);
+PropError
+setScalarLocal(void *struct_def, void *owner, util::string name, Prop type, double value);
+PropError readScalar(void *struct_def,
+                     void *owner,
+                     util::string name,
+                     Prop type,
+                     DeviceInputCtx *ctx,
+                     double &value);
 } // namespace struct_detail_2
 
 struct struct_detail {
@@ -60,6 +100,22 @@ struct struct_detail {
     float lookupFloat(util::string name, float default_value)
     {
       return lookupValue<float>(name, default_value);
+    }
+
+    PropError setScalarLocal(util::string name, Prop type, double value)
+    {
+      return struct_detail_2::setScalarLocal(struct_def, owner, name, type, value);
+    }
+
+    PropError readScalar(util::string name, Prop type, double &value)
+    {
+      return struct_detail_2::readScalar(struct_def, owner, name, type, nullptr, value);
+    }
+
+    PropError
+    evaluateScalar(util::string name, Prop type, DeviceInputCtx &ctx, double &value)
+    {
+      return struct_detail_2::readScalar(struct_def, owner, name, type, &ctx, value);
     }
 
     template <typename T>
@@ -164,12 +220,26 @@ struct struct_detail {
     }
 #undef MAKE_PROP
 
-    Property *lookup(util::string name)
+    Property *lookupLocal(util::string name)
     {
       Property **prop = members_.lookup_ptr(name);
+      return prop ? *prop : nullptr;
+    }
 
+    /** Check declarations against current state without publishing properties or metadata.
+     * registerScalars repeats this check; a successful preflight does not reserve state. */
+    ScalarRegistrationResult
+    validateScalarDeclarations(std::span<const ScalarDeclaration> declarations);
+    ScalarRegistrationResult
+    registerScalars(std::span<const ScalarDeclaration> declarations);
+    bool scalarDeclaration(util::string name, ScalarDeclaration &out);
+    PropError validateScalarSchema(util::string name);
+
+    Property *lookup(util::string name)
+    {
+      Property *prop = lookupLocal(name);
       if (prop) {
-        return *prop;
+        return prop;
       }
 
       // Inheritance fallback: resolve from the parent default for any key the
@@ -214,6 +284,7 @@ struct struct_detail {
       return *prop;
     }
     util::Map<util::string, Property *> members_;
+    util::Map<util::string, ScalarDeclaration> scalarDeclarations_;
   };
 };
 

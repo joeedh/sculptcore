@@ -466,6 +466,13 @@ int runRegistryMode(const Args &args)
     if (!brush) {
       return 1;
     }
+    auto fieldErrors = validateCppFields(*brush, CppEmitOptions{true});
+    if (fieldErrors.size() > 0) {
+      for (const auto &error : fieldErrors) {
+        std::fprintf(stderr, "%s: %s\n", p.c_str(), error.c_str());
+      }
+      return 1;
+    }
     RegistryEntry e;
     e.stem = stemOf(p);
     e.attrName = brush->attrName;
@@ -474,12 +481,19 @@ int runRegistryMode(const Args &args)
     e.fullTopo = brush->isFullTopo;
     e.faceStage = brushHasFaceStage(*brush);
     for (const auto &f : brush->fields) {
-      // Scalar floats not backed by a Brush member take namedFloats slots;
-      // non-float unlisted uniforms are rejected by the per-kernel cpp emit.
-      if (f.type == TypeKind::Float && fieldUsesStore(f)) {
+      // The shared validator restricts stored fields to float/int/bool.
+      if (fieldUsesStore(f)) {
         StoreUniform su;
         su.name = f.name;
-        su.def = f.hasDefault ? f.defaultValue : 0.0;
+        su.type = f.type == TypeKind::Bool  ? sculptcore::props::Prop::BOOL
+                  : f.type == TypeKind::Int ? sculptcore::props::Prop::INT32
+                                            : sculptcore::props::Prop::FLOAT32;
+        su.hasDefault = f.hasDefault;
+        su.defaultValue = f.defaultValue;
+        su.hasRange = f.hasRange;
+        su.rangeMin = f.rangeMin;
+        su.rangeMax = f.rangeMax;
+        su.dynamic = f.kind == FieldKind::Uniform && fieldDynamicCapable(f);
         e.storeUniforms.append(su);
       }
     }

@@ -9,6 +9,8 @@
 // updateEnhanceRegion's N-ring BFS walks live links every dab.
 @fulltopo
 brush Enhance {
+  uniform int enhance_rings;
+  uniform int enhance_inner;
   attr vertex float3 edisp = ".brush.enhance.disp";
 
   vertex void apply(inout Vertex v) {

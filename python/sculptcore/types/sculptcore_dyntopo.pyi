@@ -19,6 +19,7 @@ class DynTopoParams(BoundObject):
     max_collapses: int32
     do_smooth: bool
     smooth_lambda: float
+    reproject_uvs: bool
     preserve_features: bool
 
 class DynTopoStats(BoundObject):

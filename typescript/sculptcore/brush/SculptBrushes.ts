@@ -39,4 +39,5 @@ export enum SculptBrushes {
   LAYERDRAW = 20,
   ENHANCE = 21,
   TEXGRAD = 22,
+  NUDGE = 23,
 }

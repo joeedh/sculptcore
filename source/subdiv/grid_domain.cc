@@ -258,7 +258,7 @@ static constexpr const char *kMaskChannel = GridLevelDomain::kMaskChannelName;
 void GridLevelDomain::syncMaskFromStore()
 {
   int ch = mr_->store.findChannel(util::string(kMaskChannel));
-  if (ch < 0) {
+  if (ch < 0 || !mr_->store.channelLevelAllocated(level_, ch)) {
     for (int i = 0; i < vertCount_; i++) {
       mask[i] = 0.0f;
     }

@@ -7,6 +7,8 @@
 
 #include "brush/brush.h"
 #include "brush/grid_executor.h"
+#include "dab_inputs.h"
+#include "stroke_inputs.h"
 #include "subdiv/grid_domain.h"
 #include "subdiv/grid_draw_source.h"
 #include "subdiv/grid_stroke_log.h"
@@ -16,6 +18,7 @@
 #include "litestl/util/alloc.h"
 
 #include <cstdint>
+#include <optional>
 
 using namespace sculptcore;
 
@@ -195,8 +198,11 @@ int GridStroke_dab(GridStrokeSession *s,
                    int grabAdd)
 {
   if (!s) {
-    return 0;
+    return -1;
   }
+  if (!s->exec.preflightRaw(
+          brush::SculptBrushes(tool), float3(ox, oy, oz), float3(nx, ny, nz)))
+    return -1;
   s->exec.setGrabAccumAdd(grabAdd != 0);
   int moved = s->exec.applyDab(
       brush::SculptBrushes(tool), float3(ox, oy, oz), float3(nx, ny, nz));
@@ -255,6 +261,174 @@ static bool gridStrokeCurrent(GridStrokeSession *s)
          s->mr->domainGeneration() == s->boundGen && s->exec.domain != nullptr;
 }
 
+int GridStroke_supportsResolved(GridStrokeSession *s,
+                                int tool,
+                                brush::BrushProgram *program)
+{
+  return gridStrokeCurrent(s) &&
+         (program ? s->exec.supportsResolvedProgram(program)
+                  : s->exec.supportsResolved(brush::SculptBrushes(tool)));
+}
+
+static int gridResolved(GridStrokeSession *s,
+                        int tool,
+                        brush::BrushProgram *program,
+                        float3 center,
+                        float3 normal,
+                        bool grabAdd = false)
+{
+  if (!gridStrokeCurrent(s))
+    return -1;
+  auto result =
+      program ? s->exec.applyResolvedProgram(program, center, normal, false, grabAdd)
+              : s->exec.applyResolvedDab(
+                    brush::SculptBrushes(tool), center, normal, false, grabAdd);
+  if (result.error != props::PropError::ERROR_NONE)
+    return brush::reportStrokeInputFailure(result);
+  const auto &moved = s->exec.lastDabMoved();
+  std::span<const int> vertices(moved.size() ? &moved[0] : nullptr, moved.size());
+  if (vertices.size()) {
+    if (auto *source = s->mr->drawSource())
+      source->markVerts(vertices);
+    if (s->mirror)
+      brush::gridsMirrorToSlot(s->mr, s->level, vertices);
+  }
+  return int(vertices.size());
+}
+
+int GridStroke_dabResolved(GridStrokeSession *s,
+                           int tool,
+                           float x,
+                           float y,
+                           float z,
+                           float nx,
+                           float ny,
+                           float nz)
+{
+  return gridResolved(s, tool, nullptr, float3(x, y, z), float3(nx, ny, nz));
+}
+
+int GridStroke_dabResolvedImage(GridStrokeSession *s,
+                                int tool,
+                                float x,
+                                float y,
+                                float z,
+                                float nx,
+                                float ny,
+                                float nz,
+                                int grabAdd)
+{
+  return gridResolved(
+      s, tool, nullptr, float3(x, y, z), float3(nx, ny, nz), grabAdd != 0);
+}
+
+int GridStroke_dabProgramResolved(GridStrokeSession *s,
+                                  brush::BrushProgram *program,
+                                  float x,
+                                  float y,
+                                  float z,
+                                  float nx,
+                                  float ny,
+                                  float nz)
+{
+  return program ? gridResolved(s, 0, program, float3(x, y, z), float3(nx, ny, nz)) : -1;
+}
+
+static int gridDabInputs(GridStrokeSession *s,
+                         int tool,
+                         brush::BrushProgram *program,
+                         int n,
+                         const float *dabs,
+                         float strength,
+                         const float *inputs,
+                         const float *signs,
+                         int mirrors,
+                         int policy)
+{
+  if (!gridStrokeCurrent(s) || policy < 0 || policy > 2 ||
+      !brush::validDabInputs(n, dabs, strength, inputs, signs, mirrors))
+    return -1;
+  bool resolved =
+      policy == 1 || (policy == 2 && GridStroke_supportsResolved(s, tool, program));
+  if (n == 0) {
+    if (!resolved)
+      return (program ? s->exec.preflightRawProgram(program, float3(0.0f), float3(0.0f))
+                      : s->exec.preflightRaw(
+                            brush::SculptBrushes(tool), float3(0.0f), float3(0.0f)))
+                 ? 0
+                 : -1;
+    auto result =
+        program ? s->exec.applyResolvedProgram(program, float3(0.0f), float3(0.0f), true)
+                : s->exec.applyResolvedDab(
+                      brush::SculptBrushes(tool), float3(0.0f), float3(0.0f), true);
+    return result.error == props::PropError::ERROR_NONE ? 0 : -1;
+  }
+  auto image = [&](float3 center, float3 normal, const float *sign = nullptr) {
+    std::optional<brush::DabFrameOverlay> frame;
+    if (resolved && sign)
+      frame.emplace(*s->exec.brush, sign);
+    if (resolved)
+      return gridResolved(s, tool, program, center, normal, sign != nullptr);
+    if (program)
+      return GridStroke_dabProgram(
+          s, program, center[0], center[1], center[2], normal[0], normal[1], normal[2]);
+    return GridStroke_dab(
+        s, tool, center[0], center[1], center[2], normal[0], normal[1], normal[2], 0);
+  };
+  int total = 0;
+  for (int i = 0; i < n; i++) {
+    const float *d = dabs + i * 7;
+    brush::DabInputOverlay overlay(*s->exec.brush);
+    if (!overlay.valid())
+      return -1;
+    brush::setDabInputs(*s->exec.brush, d[6], strength, inputs + i * 6);
+    int result = image(float3(d[0], d[1], d[2]), float3(d[3], d[4], d[5]));
+    if (result < 0)
+      return -1;
+    total += result;
+    for (int j = 0; j < mirrors; j++) {
+      const float *sign = signs + j * 3;
+      result = image(float3(d[0] * sign[0], d[1] * sign[1], d[2] * sign[2]),
+                     float3(d[3] * sign[0], d[4] * sign[1], d[5] * sign[2]),
+                     sign);
+      if (result < 0)
+        return -1;
+      total += result;
+    }
+    overlay.commit();
+  }
+  return total;
+}
+
+int GridStroke_dabBatchInputs(GridStrokeSession *s,
+                              int tool,
+                              int n,
+                              const float *dabs,
+                              float strength,
+                              const float *inputs,
+                              const float *signs,
+                              int mirrors,
+                              int policy)
+{
+  return gridDabInputs(
+      s, tool, nullptr, n, dabs, strength, inputs, signs, mirrors, policy);
+}
+
+int GridStroke_dabBatchProgramInputs(GridStrokeSession *s,
+                                     brush::BrushProgram *program,
+                                     int n,
+                                     const float *dabs,
+                                     float strength,
+                                     const float *inputs,
+                                     const float *signs,
+                                     int mirrors,
+                                     int policy)
+{
+  return program ? gridDabInputs(
+                       s, 0, program, n, dabs, strength, inputs, signs, mirrors, policy)
+                 : -1;
+}
+
 /** Batch raycast against the session's bound tree. `rays` = n x 6
  * {origin.xyz, dir.xyz}; on hit `out6` row i = {p.xyz, normal.xyz} and
  * `hit[i]` = 1. Returns the hit count, or -1 when the binding is no longer
@@ -306,39 +480,19 @@ int GridStroke_dabBatch(GridStrokeSession *s,
                         const float *signs,
                         int mirrorCount)
 {
-  if (!gridStrokeCurrent(s)) {
+  if (n < 0 || n > INT_MAX / 7)
     return -1;
-  }
-  brush::Brush *b = s->exec.brush;
-  int moved = 0;
+  litestl::util::Vector<float> samples;
+  samples.resize(size_t(n) * 6);
   for (int i = 0; i < n; i++) {
-    const float *d = dabs + i * 7;
-    // Strength/radius must be rewritten every dab: the executor's loadProps
-    // assigns post-dynamics values back into the Brush fields, so a stale
-    // field would persist the decayed value into the prop store.
-    b->strength = strength;
-    b->radius = d[6];
-    b->invert = invert != 0;
-    b->writeProps();
-    if (usePressure) {
-      b->clearDeviceInputs();
-      b->pushDeviceInput(int(props::DeviceType::PRESSURE), pressure);
-    }
-    moved += GridStroke_dab(s, tool, d[0], d[1], d[2], d[3], d[4], d[5], 0);
-    for (int m = 0; m < mirrorCount; m++) {
-      const float *sg = signs + m * 3;
-      moved += GridStroke_dab(s,
-                              tool,
-                              d[0] * sg[0],
-                              d[1] * sg[1],
-                              d[2] * sg[2],
-                              d[3] * sg[0],
-                              d[4] * sg[1],
-                              d[5] * sg[2],
-                              0);
-    }
+    float *row = samples.data() + i * 6;
+    row[0] = usePressure ? pressure : 0;
+    row[1] = row[2] = row[3] = 0;
+    row[4] = usePressure ? 1 : 0;
+    row[5] = invert != 0;
   }
-  return moved;
+  return gridDabInputs(
+      s, tool, nullptr, n, dabs, strength, samples.data(), signs, mirrorCount, 0);
 }
 
 /** Batch of composite-program dabs: GridStroke_dabBatch's per-dab prop cycle
@@ -358,38 +512,19 @@ int GridStroke_dabBatchProgram(GridStrokeSession *s,
                                const float *signs,
                                int mirrorCount)
 {
-  if (!gridStrokeCurrent(s)) {
+  if (n < 0 || n > INT_MAX / 7)
     return -1;
-  }
-  brush::Brush *b = s->exec.brush;
-  int moved = 0;
+  litestl::util::Vector<float> samples;
+  samples.resize(size_t(n) * 6);
   for (int i = 0; i < n; i++) {
-    const float *d = dabs + i * 7;
-    // Strength/radius must be rewritten every dab: the executor's loadProps
-    // assigns post-dynamics values back into the Brush fields, so a stale
-    // field would persist the decayed value into the prop store.
-    b->strength = strength;
-    b->radius = d[6];
-    b->invert = invert != 0;
-    b->writeProps();
-    if (usePressure) {
-      b->clearDeviceInputs();
-      b->pushDeviceInput(int(props::DeviceType::PRESSURE), pressure);
-    }
-    moved += GridStroke_dabProgram(s, prog, d[0], d[1], d[2], d[3], d[4], d[5]);
-    for (int m = 0; m < mirrorCount; m++) {
-      const float *sg = signs + m * 3;
-      moved += GridStroke_dabProgram(s,
-                                     prog,
-                                     d[0] * sg[0],
-                                     d[1] * sg[1],
-                                     d[2] * sg[2],
-                                     d[3] * sg[0],
-                                     d[4] * sg[1],
-                                     d[5] * sg[2]);
-    }
+    float *row = samples.data() + i * 6;
+    row[0] = usePressure ? pressure : 0;
+    row[1] = row[2] = row[3] = 0;
+    row[4] = usePressure ? 1 : 0;
+    row[5] = invert != 0;
   }
-  return moved;
+  return gridDabInputs(
+      s, 0, prog, n, dabs, strength, samples.data(), signs, mirrorCount, 0);
 }
 
 void GridStroke_end(GridStrokeSession *s)
@@ -455,7 +590,7 @@ int GridStroke_dropOldest(GridStrokeSession *s)
 /** Captured undo bytes across the session's history. */
 double GridStroke_undoBytes(GridStrokeSession *s)
 {
-  return s ? double(s->log.bytes()) : 0.0;
+  return s ? double(s->log.retainedBytes()) : 0.0;
 }
 
 /** Whether (mr, level)'s grid domain is currently alive — hosts gate

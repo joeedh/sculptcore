@@ -3,10 +3,6 @@ from ._prim import int32
 from ._runtime import BoundArray
 from ._runtime import BoundObject
 
-class float2(BoundObject):
-    @property
-    def vec(self) -> BoundArray[float]: ...
-
 class int2(BoundObject):
     @property
     def vec(self) -> BoundArray[int32]: ...
@@ -21,10 +17,14 @@ class AABB_float3(BoundObject):
     @property
     def max(self) -> float3: ...
 
-class int4(BoundObject):
-    @property
-    def vec(self) -> BoundArray[int32]: ...
-
 class float4(BoundObject):
     @property
     def vec(self) -> BoundArray[float]: ...
+
+class float2(BoundObject):
+    @property
+    def vec(self) -> BoundArray[float]: ...
+
+class int4(BoundObject):
+    @property
+    def vec(self) -> BoundArray[int32]: ...

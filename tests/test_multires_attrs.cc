@@ -38,6 +38,11 @@
 
 test_init;
 
+extern "C" int CageSmooth_dabCurrentInputs(sculptcore::brush::CageSmoothSession *,
+                                           int,
+                                           const float *,
+                                           float);
+
 /* The undo seam (subdiv/c-api/subdiv_c_api.cc): no header declares these, the
  * hosts reach them through the DLL's C interface. */
 extern "C" {
@@ -641,7 +646,7 @@ static float colorDist(const float4 &a, const float4 &b)
  * directly -- falloff in limit space, neighbours the cage 1-ring, masking from
  * the store's mask channel -- and its epilogue re-derives the touched grids so
  * the host's trailing scatter proposes nothing. */
-static void gateCageColorSmooth()
+static void gateCageColorSmooth(bool resolved = false)
 {
   using subdiv::GridLevelDomain;
 
@@ -725,7 +730,27 @@ static void gateCageColorSmooth()
     test_assert(s.begin("color"));
 
     const float dabA[7] = {centre[0], centre[1], centre[2], 0.0f, 0.0f, 1.0f, 2.0f};
-    test_assert(s.dabBatch(tool, 1, dabA, 0.35f, false, 1.0f, false, nullptr, 0) > 0);
+    if (resolved) {
+      test_assert(s.supportsResolved(tool));
+      test_assert(!s.supportsResolved(int(brush::SculptBrushes::DRAW)));
+      b.radius = 1.0f;
+      b.writeDabProps();
+      auto *radius =
+          static_cast<props::Float32Prop *>(static_cast<props::detail::PropBaseType *>(
+              b.props.struct_def->lookupLocal("radius")));
+      radius->dynamics.configure(props::DeviceType::PRESSURE, math::BasicMix::ADD, 1);
+      b.pushDeviceInput(int(props::DeviceType::PRESSURE), 1.0f);
+      const float oldRadius = b.radius;
+      test_assert(s.dabResolved(tool, centre, {0, 0, 1}, true) == 0);
+      test_assert(b.radius == oldRadius && sameColor((*cageCol)[4], before[4]));
+      test_assert(s.dabResolved(tool, centre, {0, 0, 1}) > 0);
+      test_assert(std::abs(b.radius - 2.0f) < 1e-6f);
+      test_assert(*radius->internal_value() == 1.0f);
+      radius->dynamics.devices.clear();
+      b.clearDeviceInputs();
+    } else {
+      test_assert(s.dabBatch(tool, 1, dabA, 0.35f, false, 1.0f, false, nullptr, 0) > 0);
+    }
 
     /* The centre moved toward its cage 1-ring's mean -- the four edge
      * midpoints, not the grid lattice. */
@@ -747,8 +772,33 @@ static void gateCageColorSmooth()
     test_assert(gap > 0.2f);
     const float4 corner0 = (*cageCol)[0];
     const float dabB[7] = {limit0[0], limit0[1], limit0[2], 0.0f, 0.0f, 1.0f, 0.5f * gap};
-    test_assert(s.dabBatch(tool, 1, dabB, 0.5f, false, 1.0f, false, nullptr, 0) > 0);
+    if (resolved) {
+      b.radius = dabB[6];
+      b.strength = 0.5f;
+      b.writeDabProps();
+      test_assert(s.dabResolved(tool, limit0, {0, 0, 1}) > 0);
+      const auto saved = (*cageCol)[0];
+      const auto generation = mr.gridAttrs().cageGeneration();
+      test_assert(s.dabResolved(tool, {NAN, 0, 0}, {0, 0, 1}) == -1);
+      test_assert(s.dabResolved(int(brush::SculptBrushes::DRAW), limit0, {0, 0, 1}) ==
+                  -1);
+      test_assert(sameColor(saved, (*cageCol)[0]));
+      test_assert(mr.gridAttrs().cageGeneration() == generation);
+    } else {
+      test_assert(s.dabBatch(tool, 1, dabB, 0.5f, false, 1.0f, false, nullptr, 0) > 0);
+    }
     test_assert(!sameColor((*cageCol)[0], corner0));
+
+    b.invert = true;
+    b.pushDeviceInput(int(props::DeviceType::TILTX), 0.25f);
+    const float emptyDab[7] = {100, 100, 100, 0, 0, 1, 0.01f};
+    test_assert(CageSmooth_dabCurrentInputs(&s, tool, emptyDab, 0.5f) == 0);
+    test_assert(b.invert);
+    test_assert(b.deviceInputCtx.inputs.size() == 1 &&
+                b.deviceInputCtx.inputs[0].type == props::DeviceType::TILTX &&
+                b.deviceInputCtx.inputs[0].value == 0.25f);
+    test_assert(s.dabBatch(tool, 1, emptyDab, 0.5f, false, 1, false, nullptr, 1) == -1);
+    test_assert(b.invert);
 
     s.end();
   }
@@ -1789,6 +1839,7 @@ int main(int argc, char **argv)
   gateCageScatter();
   gateCageVertScatter();
   gateCageColorSmooth();
+  gateCageColorSmooth(true);
   gateSubFaceDabCollapse();
   gateChannelCapi();
   gateResidentSlotFreshness();

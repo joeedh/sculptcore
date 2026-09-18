@@ -5,6 +5,8 @@
 #include "litestl/binding/binding.h"
 #include "litestl/util/string.h"
 #include "litestl/util/vector.h"
+#include "props/prop_dynamics.h"
+#include "props/prop_enums.h"
 
 namespace sculptcore::brush {
 
@@ -20,6 +22,20 @@ struct BrushFloatOverride {
   int propId = 0;
   float value = 0.0f;
   util::string name;
+};
+
+/** Typed base-value override for checked program execution. */
+struct BrushScalarOverride {
+  util::string name;
+  props::Prop type = props::Prop::INVALID_TYPE;
+  double value = 0;
+};
+
+/** Present empty dynamics explicitly disable the inherited brush stack. */
+struct BrushDynamicsOverride {
+  util::string name;
+  props::Prop type = props::Prop::INVALID_TYPE;
+  props::Dynamics dynamics;
 };
 
 /** Redirects one of a kernel's declared attribute handles (by its 0-based index
@@ -41,7 +57,11 @@ struct BrushAttrLayerOverride {
 struct BrushCommandEntry {
   SculptBrushes type = SculptBrushes::DRAW;
   Vector<BrushFloatOverride> floatOverrides;
+  Vector<BrushScalarOverride> scalarOverrides;
+  Vector<BrushDynamicsOverride> dynamicsOverrides;
   Vector<BrushAttrLayerOverride> attrLayerOverrides;
+  // Empty inherits the brush table; replacement requires exactly 256 samples.
+  Vector<float> cavityCurveOverride;
   bool overrideInvert = false;
   bool invertValue = false;
 };
@@ -92,6 +112,27 @@ struct BrushProgram {
     commands[idx].floatOverrides.append(std::move(ov));
   }
 
+  /** Checks scalar transport; the resolved executor validates manifest membership. */
+  props::PropError
+  setCommandScalarChecked(int idx, util::string name, props::Prop type, double value);
+
+  /** Candidate replacement; kernel membership is validated before execution. */
+  int replaceCommandResponseDynamicsChecked(int idx,
+                                            util::string name,
+                                            int scalarType,
+                                            util::Vector<int> &devices,
+                                            util::Vector<int> &modes,
+                                            util::Vector<float> &factors,
+                                            util::Vector<int> &enabled,
+                                            util::Vector<int> &offsets,
+                                            util::Vector<float> &samples,
+                                            util::Vector<int> &kinds,
+                                            util::Vector<double> &parameters);
+  /** Remove the local stack so this command inherits the brush again. */
+  int removeCommandDynamicsChecked(int idx, util::string name, int scalarType);
+  int replaceCommandCavityCurveChecked(int idx, Vector<float> &samples);
+  int removeCommandCavityCurveChecked(int idx);
+
   void setCommandInvert(int idx, bool inv)
   {
     if (idx < 0 || idx >= int(commands.size())) {
@@ -122,6 +163,23 @@ struct BrushProgram {
     BIND_STRUCT_METHOD(st, addCommand, MARGS("type"));
     BIND_STRUCT_METHOD(st, setCommandFloat, MARGS("idx", "propId", "v"));
     BIND_STRUCT_METHOD(st, setCommandFloatByName, MARGS("idx", "name", "v"));
+    BIND_STRUCT_METHOD(st,
+                       replaceCommandResponseDynamicsChecked,
+                       MARGS("idx",
+                             "name",
+                             "scalarType",
+                             "devices",
+                             "modes",
+                             "factors",
+                             "enabled",
+                             "offsets",
+                             "samples",
+                             "kinds",
+                             "parameters"));
+    BIND_STRUCT_METHOD(
+        st, removeCommandDynamicsChecked, MARGS("idx", "name", "scalarType"));
+    BIND_STRUCT_METHOD(st, replaceCommandCavityCurveChecked, MARGS("idx", "samples"));
+    BIND_STRUCT_METHOD(st, removeCommandCavityCurveChecked, MARGS("idx"));
     BIND_STRUCT_METHOD(st, setCommandInvert, MARGS("idx", "inv"));
     BIND_STRUCT_METHOD(st, setCommandAttrLayer, MARGS("idx", "attrIdx", "layerIndex"));
 

@@ -1,5 +1,6 @@
 /* Warning: auto-generated file! Regenerate with 'pnpm build' in 'tools/' folder. */
 import type {BrushUniformManifestEntry} from './BrushUniformManifestEntry'
+import type {BrushScalarResult} from './BrushScalarResult'
 import type {Mesh} from '../mesh/Mesh'
 import type {Brush} from './Brush'
 import type {SpatialTree} from '../spatial/SpatialTree'
@@ -75,7 +76,95 @@ export interface CommandExecutor {
   setGrabAccumAdd(add: boolean): void
   setStrokeGen(gen: int32): void
   lastUniformValidationOk(): boolean
+  preflightRaw(type: SculptBrushes): boolean
+  preflightRawProgram(program: BrushProgram): boolean
+  supportsResolved(type: SculptBrushes): boolean
+  supportsResolvedProgram(program: BrushProgram): boolean
   queryUniformManifest(brushType: int32): int32
+  uniformQueryToken(): int32
+  uniformSnapshotChecked(
+    token: int32,
+    uniformIndex: int32
+  ): BrushUniformManifestEntry
+  readUniformScalarChecked(
+    token: int32,
+    uniformIndex: int32,
+    scalarType: int32,
+    evaluate: boolean
+  ): BrushScalarResult
+  writeUniformScalarChecked(
+    token: int32,
+    uniformIndex: int32,
+    scalarType: int32,
+    value: double
+  ): int32
+  configureUniformDynamicChecked(
+    token: int32,
+    uniformIndex: int32,
+    scalarType: int32,
+    device: int32,
+    mode: int32,
+    factor: float
+  ): int32
+  enableUniformDynamicChecked(
+    token: int32,
+    uniformIndex: int32,
+    scalarType: int32,
+    device: int32,
+    enabled: int32
+  ): int32
+  moveUniformDynamicChecked(
+    token: int32,
+    uniformIndex: int32,
+    scalarType: int32,
+    device: int32,
+    index: int32
+  ): int32
+  clearUniformDynamicsChecked(
+    token: int32,
+    uniformIndex: int32,
+    scalarType: int32
+  ): int32
+  replaceUniformDynamicTableChecked(
+    token: int32,
+    uniformIndex: int32,
+    scalarType: int32,
+    device: int32,
+    samples: float[]
+  ): int32
+  setUniformDynamicSampleChecked(
+    token: int32,
+    uniformIndex: int32,
+    scalarType: int32,
+    device: int32,
+    index: int32,
+    count: int32,
+    value: float
+  ): int32
+  replaceUniformDynamicsChecked(
+    token: int32,
+    uniformIndex: int32,
+    scalarType: int32,
+    devices: int32[],
+    modes: int32[],
+    factors: float[],
+    enabled: int32[],
+    offsets: int32[],
+    samples: float[]
+  ): int32
+  replaceUniformResponseDynamicsChecked(
+    token: int32,
+    uniformIndex: int32,
+    scalarType: int32,
+    devices: int32[],
+    modes: int32[],
+    factors: float[],
+    enabled: int32[],
+    offsets: int32[],
+    samples: float[],
+    kinds: int32[],
+    parameters: double[]
+  ): int32
   queriedUniformEntry(idx: int32): BrushUniformManifestEntry | undefined
   filterRadiusFloor(brushType: SculptBrushes): float
   clearUniformDynamics(idx: int32): void

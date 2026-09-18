@@ -20,6 +20,8 @@
 #include "mesh/uv_reproject.h"
 #include "meshlog/meshlog.h"
 #include "neighbor_source.h"
+#include "prepared_cavity.h"
+#include "prepared_enhance.h"
 #include "spatial/node.h"
 #include "spatial/spatial.h"
 #include <cmath>
@@ -56,7 +58,7 @@ struct CommandExecutor {
   /** A `face` stage is dispatched through makeFaceIter, which this domain has
    * (a spatial leaf owns faces). The generated registry reads this to decide
    * whether to instantiate a face-stage kernel at all. Declared before
-   * brush_command — the CommandTypes check runs on an incomplete class, so the
+   * brush_command â€” the CommandTypes check runs on an incomplete class, so the
    * bit must already be visible. */
   static constexpr bool supportsFaceStages = true;
   using brush_command = BrushCommandDef<CommandCtx<CommandExecutor>>;
@@ -69,7 +71,7 @@ struct CommandExecutor {
   }
 
   /** The live vertex normal the view-normal automask evaluates, or null when
-   * unavailable (no mesh on the ctx — the historical skip). */
+   * unavailable (no mesh on the ctx â€” the historical skip). */
   template <class Ctx> const float3 *liveVertNoPtr(Ctx &ctx, int v) const
   {
     return ctx.m ? &ctx.m->v.no[v] : nullptr;
@@ -82,10 +84,47 @@ struct CommandExecutor {
   enum class NeighborMode { LiveDisk, Csr };
 
   Brush *brush;
+  PreparedCavityCache preparedCavity;
+  PreparedEnhanceCache preparedEnhance;
+  bool preparedCavityActive = false;
+
+private:
+  bool preparedStepOpen_ = false;
+  bool preparedPreviewStroke_ = false;
+  bool preparedPreviewClosed_ = false;
+  SpatialTree *preparedStepTree_ = nullptr;
+  mesh::Mesh *preparedStepMesh_ = nullptr;
+  Brush *preparedStepBrush_ = nullptr;
+  meshlog::MeshLog *preparedStepLog_ = nullptr;
+  int preparedStepId_ = -1;
+
+  bool preparedStepValid() const
+  {
+    return preparedStepOpen_ && tree == preparedStepTree_ && tree &&
+           tree->m == preparedStepMesh_ && brush == preparedStepBrush_ &&
+           meshLog == preparedStepLog_ &&
+           (!meshLog || meshLog->hasOpenStepFor(preparedStepMesh_, preparedStepId_));
+  }
+
+public:
+  bool preparedPreviewSupported() const
+  {
+    return !previewActive() ||
+           (!preparedPreviewClosed_ && (isFirstOfStep || preparedPreviewStroke_));
+  }
+
+  void capturePreparedPreview()
+  {
+    if (!previewActive())
+      return;
+    preparedPreviewStroke_ = true;
+    meshLog->capturePreviewNodes(tree->m, {dabNodes_.data(), dabNodes_.size()});
+  }
+
   SpatialTree *tree;
   CommandCtxBase ctx;
   bool isFirstOfStep = false;
-  /** True while the current step (stroke) runs dyntopo — leaf element sets can
+  /** True while the current step (stroke) runs dyntopo â€” leaf element sets can
    * change mid-stroke, so the capture walk-elision stamps are disabled. */
   bool stepHasDyntopo = false;
   /** Sub-command slot of the exec() in flight (index into the brush program;
@@ -104,7 +143,7 @@ struct CommandExecutor {
   /** coPrev incremental-refresh state: after the stroke's first full snapshot,
    * later needsCoPrev execs refresh only the verts of nodes an exec touched
    * since the previous refresh (coPrevDirty_, deduped by node->coPrevStamp
-   * against coPrevGen_). Only valid on topology-stable strokes — same
+   * against coPrevGen_). Only valid on topology-stable strokes â€” same
    * condition as the capture stamps. */
   bool coPrevFull_ = false;
   int coPrevGen_ = 0;
@@ -138,7 +177,7 @@ struct CommandExecutor {
   float grabWidenRadius_ = 0.0f;
 
   /** UV slide-reprojection deferral (frozen-topology strokes): vert -> its
-   * position before the first dab that moved it. Flushed by endStep — one
+   * position before the first dab that moved it. Flushed by endStep â€” one
    * thaw + reproject per stroke instead of one per dab (which would also
    * perturb the frozen-CSR stroke state). */
   Map<int, float3> uvReprojPending_;
@@ -166,14 +205,14 @@ struct CommandExecutor {
   bool nonAccum = false;
   /** True when this stroke anchors its origin, which makes a `@grabmode`
    * kernel take the from-orig fixed-region policy. It is a stroke property, not
-   * a kernel one — the same kelvinlet dragged along a path accumulates like any
-   * other brush — so the host owns it (TS: `strokeMethod === ANCHORED`).
+   * a kernel one â€” the same kelvinlet dragged along a path accumulates like any
+   * other brush â€” so the host owns it (TS: `strokeMethod === ANCHORED`).
    * Defaults true so a host that never sets it gets the historical behavior:
    * grab and kelvinlet, the only `@grabmode` kernels, always grab. */
   bool anchoredGrab = true;
   /** Grab-class symmetry dab marker (#35). The dab dispatch calls setGrabAccumAdd
    * per symmetry image before applyDab: false on the primary image (which begins
-   * a new logical dab → bumps `dabGen`), true on mirror images (same dab). The
+   * a new logical dab â†’ bumps `dabGen`), true on mirror images (same dab). The
    * AccumOrigGrab write-back uses the per-vert `.brush.dab.gen` stamp vs `dabGen`
    * to re-base the first image's verts and add later images' onto them. */
   bool grabAccumAdd = false;
@@ -204,7 +243,7 @@ struct CommandExecutor {
   Vector<displace::LayerEditScope> layerScopes;
   Vector<int> layerRegionVerts; // dab-region vert ids the scopes snapshot
   /** Attr-layer overrides applied when exec() is called without an explicit
-   * override span (the applyDab/execBrush path — execProgram passes its own).
+   * override span (the applyDab/execBrush path â€” execProgram passes its own).
    * Lets a single-brush driver (debug_app `stroke layer=`) retarget a kernel's
    * attr handle at a chosen mesh layer. */
   Vector<BrushAttrLayerOverride> defaultAttrOverrides;
@@ -214,13 +253,56 @@ struct CommandExecutor {
    * most recent result (readable by the bridge); `strokeValidationFailed` gates
    * every dab of a failed stroke. */
   UniformValidationResult lastValidation;
+  props::ScalarRegistrationResult lastRegistration;
   bool strokeValidationFailed = false;
-  /** Wave 5: the active brush's uniform manifest, cached by queryUniformManifest
-   * so the TS bridge can enumerate it by index (the binding runtime can't pass a
-   * JS string into a `util::string` method arg). queriedUniformEntry hands each
-   * entry back by pointer; the *UniformDynamics methods resolve index -> name and
-   * delegate to the Brush by-name dynamics API. */
+  /** Legacy mutable manifest descriptors, borrowed until the next query.
+   * Configuration methods resolve indices through the private canonical copy.
+   * Checked callers also supply a query token and can request owned snapshots. */
   Vector<BrushUniformManifestEntry> queriedUniforms;
+
+private:
+  Vector<BrushUniformManifestEntry> canonicalUniforms_;
+  int uniformQueryToken_ = 0;
+  const CommandExecutor *querySource_ = nullptr;
+  Brush *queryBrush_ = nullptr;
+  props::StructDef *queryStruct_ = nullptr;
+  static int allocateUniformQueryToken();
+  int checkedUniformName(int token, int index, int scalarType, string &name) const
+  {
+    if (token <= 0 || token != uniformQueryToken_ || querySource_ != this || !brush ||
+        brush != queryBrush_ || brush->props.struct_def != queryStruct_)
+    {
+      return int(props::PropError::ERROR_STALE_QUERY);
+    }
+    if (index < 0 || index >= int(canonicalUniforms_.size())) {
+      return int(props::PropError::ERROR_NOT_EXISTS);
+    }
+    const auto &entry = canonicalUniforms_[index];
+    if (scalarType != int(entry.scalarType)) {
+      return int(props::PropError::ERROR_INVALID_TYPE);
+    }
+    name = entry.name;
+    return 0;
+  }
+
+public:
+  int uniformQueryToken() const
+  {
+    return querySource_ == this ? uniformQueryToken_ : 0;
+  }
+  BrushUniformManifestEntry uniformSnapshotChecked(int token, int uniformIndex) const
+  {
+    BrushUniformManifestEntry result;
+    string name;
+    int type = uniformIndex >= 0 && uniformIndex < int(canonicalUniforms_.size())
+                   ? int(canonicalUniforms_[uniformIndex].scalarType)
+                   : int(props::Prop::INVALID_TYPE);
+    result.status = checkedUniformName(token, uniformIndex, type, name);
+    if (!result.status) {
+      result = canonicalUniforms_[uniformIndex];
+    }
+    return result;
+  }
 
   static litestl::binding::types::Struct<CommandExecutor> *defineBindings()
   {
@@ -261,7 +343,64 @@ struct CommandExecutor {
     BIND_STRUCT_METHOD(st, setGrabAccumAdd, MARGS("add"));
     BIND_STRUCT_METHOD(st, setStrokeGen, MARGS("gen"));
     BIND_STRUCT_METHOD(st, lastUniformValidationOk, MARGS());
+    BIND_STRUCT_METHOD(st, preflightRaw, MARGS("type"));
+    BIND_STRUCT_METHOD(st, preflightRawProgram, MARGS("program"));
+    BIND_STRUCT_METHOD(st, supportsResolved, MARGS("type"));
+    BIND_STRUCT_METHOD(st, supportsResolvedProgram, MARGS("program"));
     BIND_STRUCT_METHOD(st, queryUniformManifest, MARGS("brushType"));
+    BIND_STRUCT_METHOD(st, uniformQueryToken, MARGS());
+    BIND_STRUCT_METHOD(st, uniformSnapshotChecked, MARGS("token", "uniformIndex"));
+    BIND_STRUCT_METHOD(st,
+                       readUniformScalarChecked,
+                       MARGS("token", "uniformIndex", "scalarType", "evaluate"));
+    BIND_STRUCT_METHOD(st,
+                       writeUniformScalarChecked,
+                       MARGS("token", "uniformIndex", "scalarType", "value"));
+    BIND_STRUCT_METHOD(
+        st,
+        configureUniformDynamicChecked,
+        MARGS("token", "uniformIndex", "scalarType", "device", "mode", "factor"));
+    BIND_STRUCT_METHOD(st,
+                       enableUniformDynamicChecked,
+                       MARGS("token", "uniformIndex", "scalarType", "device", "enabled"));
+    BIND_STRUCT_METHOD(st,
+                       moveUniformDynamicChecked,
+                       MARGS("token", "uniformIndex", "scalarType", "device", "index"));
+    BIND_STRUCT_METHOD(
+        st, clearUniformDynamicsChecked, MARGS("token", "uniformIndex", "scalarType"));
+    BIND_STRUCT_METHOD(st,
+                       replaceUniformDynamicTableChecked,
+                       MARGS("token", "uniformIndex", "scalarType", "device", "samples"));
+    BIND_STRUCT_METHOD(
+        st,
+        setUniformDynamicSampleChecked,
+        MARGS(
+            "token", "uniformIndex", "scalarType", "device", "index", "count", "value"));
+    BIND_STRUCT_METHOD(st,
+                       replaceUniformDynamicsChecked,
+                       MARGS("token",
+                             "uniformIndex",
+                             "scalarType",
+                             "devices",
+                             "modes",
+                             "factors",
+                             "enabled",
+                             "offsets",
+                             "samples"));
+
+    BIND_STRUCT_METHOD(st,
+                       replaceUniformResponseDynamicsChecked,
+                       MARGS("token",
+                             "uniformIndex",
+                             "scalarType",
+                             "devices",
+                             "modes",
+                             "factors",
+                             "enabled",
+                             "offsets",
+                             "samples",
+                             "kinds",
+                             "parameters"));
     BIND_STRUCT_METHOD(st, queriedUniformEntry, MARGS("idx"));
     BIND_STRUCT_METHOD(st, filterRadiusFloor, MARGS("brushType"));
     BIND_STRUCT_METHOD(st, clearUniformDynamics, MARGS("idx"));
@@ -274,11 +413,10 @@ struct CommandExecutor {
     return st;
   }
 
-  /** Whether the most recent stroke's uniform-dynamics validation passed (Wave 4).
-   * The bridge reads this after the first dab to surface a skipped stroke. */
+  /** Whether the latest checked declaration or execution operation succeeded. */
   bool lastUniformValidationOk() const
   {
-    return lastValidation.ok;
+    return lastRegistration.error == props::PropError::ERROR_NONE;
   }
 
   CommandExecutor(SpatialTree *tree, Brush *brush) : tree(tree), brush(brush), ctx()
@@ -301,7 +439,7 @@ struct CommandExecutor {
   }
 
   /** Select the SMOOTH for_neighbor source: 0 = LiveDisk (live topology links),
-   * 1 = Csr (the cached ring1 adjacency). The LiteMesh sculpt path uses Csr —
+   * 1 = Csr (the cached ring1 adjacency). The LiteMesh sculpt path uses Csr â€”
    * a freshly built mesh doesn't maintain live disk links, so LiveDisk smooth
    * finds no neighbors and no-ops. Exposed as an int (NeighborMode is an
    * unbound enum). */
@@ -384,7 +522,7 @@ struct CommandExecutor {
 
   /** Fill `def` for `brushType` under a fixed AccumMode policy. createCommand
    * calls this once for AccumLive, then again for AccumOrig when non-accumulate
-   * is active and the brush is accumulable — the second call overwrites def.exec
+   * is active and the brush is accumulable â€” the second call overwrites def.exec
    * with the AccumOrig kernel while keeping the rest of the (identical) manifest. */
   template <class AccMode>
   void createCommandImpl(SculptBrushes brushType, brush_command &def)
@@ -412,7 +550,7 @@ struct CommandExecutor {
       // image via setGrabAccumAdd, which advances the per-dab generation on the
       // primary.
       def.grabMode = true;
-      /* The second impl call re-appends the same uniform + attr manifests —
+      /* The second impl call re-appends the same uniform + attr manifests â€”
          clear them first or grab-class brushes report every entry twice (the
          wave-5 queryUniformManifest / queryAttrManifest bridge). */
       def.uniforms = decltype(def.uniforms)();
@@ -427,8 +565,8 @@ struct CommandExecutor {
   }
 
   /** Lower bound on the node-filter radius for `brushType`. An `@unbounded`
-   * kernel carries no distance falloff of its own — only `unboundedWindow`'s
-   * cutoff at R = radius * unboundedExtent — so a filter sized from the brush
+   * kernel carries no distance falloff of its own â€” only `unboundedWindow`'s
+   * cutoff at R = radius * unboundedExtent â€” so a filter sized from the brush
    * radius stops while the field is still live and the leaf boundary tears.
    * Hosts still own the radius (grab widens it by the drag); this only raises
    * it, and returns 0 for every ordinary kernel. */
@@ -450,7 +588,7 @@ struct CommandExecutor {
   }
 
   /** Whether `brushType` takes the from-orig fixed-region grab policy on this
-   * stroke — the same condition createCommand uses to pick AccumOrigGrab. */
+   * stroke â€” the same condition createCommand uses to pick AccumOrigGrab. */
   bool grabAnchoredTool(SculptBrushes brushType)
   {
     ensureToolMemo(brushType);
@@ -471,12 +609,12 @@ struct CommandExecutor {
    *
    * Such a stroke only ever moves verts within the falloff radius of its FIXED
    * anchor (it re-bases from each vert's stroke-start position), so the leaves
-   * it needs are exactly the ones its first dab saw — including the border
+   * it needs are exactly the ones its first dab saw â€” including the border
    * leaves that draw replicas, whose AABBs already touch that sphere. Pin that
    * set for the stroke instead of re-filtering: the leaves deform away from the
    * anchor as the drag grows, and the old fix for that (widen the filter by the
    * drag) made every dab stamp, run, re-normal and re-upload the whole swept
-   * region — per-dab cost growing with the drag for no extra coverage.
+   * region â€” per-dab cost growing with the drag for no extra coverage.
    *
    * `hostRadius` is what the host asked for; it is only used by the dyntopo
    * fallback, which cannot pin anything. */
@@ -563,7 +701,7 @@ struct CommandExecutor {
   }
 
   /** Per-domain element *capacity*. Use this (not the count) when iterating by raw
-   * element id — dyntopo leaves freelist gaps, so a live element's id can exceed
+   * element id â€” dyntopo leaves freelist gaps, so a live element's id can exceed
    * the live count. */
   static int elemCapacityForDomain(mesh::Mesh *m, AttrElemDomain d)
   {
@@ -596,6 +734,16 @@ struct CommandExecutor {
       mesh::Mesh *m = nodes[0]->data->m;
       for (int ai = 0; ai < int(cmd.attrs.size()); ai++) {
         auto &entry = cmd.attrs[ai];
+        if (preparedCavityActive && curCaptureTool == int(SculptBrushes::ENHANCE) &&
+            entry.boundName == string(ENHANCE_DISP_ATTR))
+        {
+          preparedEnhance.beginGeometry(m);
+          mesh::AttrRef ref(mesh::AttrType::FLOAT3, ENHANCE_DISP_ATTR);
+          ref.flag = mesh::AttrFlag::TEMP | mesh::AttrFlag::NOCOPY;
+          ref.data = preparedEnhance.active();
+          attrBindingStorage.items.append(BrushAttrBinding{entry.handle, ref});
+          continue;
+        }
         mesh::AttrGroup *grp = attrGroupForDomain(m, entry.domain);
         if (!grp)
           continue;
@@ -603,7 +751,7 @@ struct CommandExecutor {
         // An override redirects this handle to the user-selected "active"
         // layer (by index). Honour it only when the layer exists and its type
         // matches the handle's declared type (the TS attribute manager already
-        // constrains categories by type, so a mismatch means a stale index —
+        // constrains categories by type, so a mismatch means a stale index â€”
         // fall through to the default by-name binding rather than corrupt the
         // wrong-typed layer).
         int ovLayer = -1;
@@ -617,7 +765,7 @@ struct CommandExecutor {
             grp->attrs[ovLayer].type == entry.type)
         {
           // Materialize the chosen layer by its (type,name) and bind it. Copy
-          // the name first — ensure() of an existing layer won't realloc, but a
+          // the name first â€” ensure() of an existing layer won't realloc, but a
           // local keeps the AttrRef& from dangling regardless.
           string nm = grp->attrs[ovLayer].name;
           mesh::AttrRef ref = grp->ensure(entry.type, nm, /*materialize=*/true);
@@ -715,10 +863,14 @@ struct CommandExecutor {
     /* Capture walk-elision: execPre captures EVERY element of every node it is
      * handed (falloff-independent), so on a topology-stable stroke a leaf that
      * was already walked for this (stroke, sub-command slot) has nothing left
-     * to capture — skip it wholesale instead of re-checking its per-element
+     * to capture â€” skip it wholesale instead of re-checking its per-element
      * stamps. Leaf element sets only change under dyntopo (splits/merges are
      * driven by dyntopo adds/collapses), which disables the stamps. */
-    const bool stampCapture = ctx.meshLog && !stepHasDyntopo && curCaptureSlot >= 0 &&
+    ctx.preparedAttributeCapture = false;
+    if (preparedCavityActive)
+      for (const auto &attribute : cmd.attrs)
+        ctx.preparedAttributeCapture |= attribute.kernelWrites;
+    const bool stampCapture = ctx.meshLog && !ctx.preparedAttributeCapture && !stepHasDyntopo && curCaptureSlot >= 0 &&
                               curCaptureSlot < spatial::SpatialNode::MAX_CAPTURE_SLOTS;
     std::span<spatial::SpatialNode *> captureSpan(nodes.data(), nodes.size());
     int stampSid = 0;
@@ -735,6 +887,7 @@ struct CommandExecutor {
           std::span<spatial::SpatialNode *>(captureNodes_.data(), captureNodes_.size());
     }
     cmd.execPre(ctx, captureSpan);
+    ctx.preparedAttributeCapture = false;
     if (stampCapture) {
       for (auto *node : captureNodes_) {
         auto &st = node->captureStamps[curCaptureSlot];
@@ -747,14 +900,14 @@ struct CommandExecutor {
     // a consistent state regardless of the parallel node loop's interleaving.
     // Indexed by RAW vertex id (so are co[] and the CSR neighbor ids), so it must
     // span the full capacity, not v.count: dyntopo leaves freelist gaps, so a live
-    // vertex's id can exceed v.count — a count-sized snapshot would be read
-    // out-of-bounds for those verts/neighbors (garbage → smooth spikes).
+    // vertex's id can exceed v.count â€” a count-sized snapshot would be read
+    // out-of-bounds for those verts/neighbors (garbage â†’ smooth spikes).
     if (cmd.needsCoPrev && nodes.size() > 0) {
       mesh::Mesh *m = nodes[0]->data->m;
       int cap = int(m->v.capacity());
 
       /* Incremental refresh: on a topology-stable stroke, kernels only move
-       * verts of the node sets they were handed — so after the stroke's first
+       * verts of the node sets they were handed â€” so after the stroke's first
        * full snapshot, entries can only be stale for nodes some exec touched
        * since the last refresh (coPrevDirty_). Neighbor reads outside every
        * touched set are still current from the full copy. */
@@ -799,7 +952,7 @@ struct CommandExecutor {
       coPrevDirty_.clear();
       ctx.co_prev = &coPrevStorage;
 
-      // CSR neighbor source is static across the stroke — (re)build once,
+      // CSR neighbor source is static across the stroke â€” (re)build once,
       // single-threaded, before the parallel node loop reads it.
       if (effectiveNeighborMode() == NeighborMode::Csr) {
         m->topo_cache.ensureRing1(*m);
@@ -819,7 +972,7 @@ struct CommandExecutor {
     ctx.curDabGen = 0;
     // Grab-class brushes always need a stroke-start base (cmd.grabMode), even
     // when not `accumulable` (kelvinlet is @global) and regardless of the
-    // ACCUMULATE flag — they deform from it via AccumOrigGrab (#35). A
+    // ACCUMULATE flag â€” they deform from it via AccumOrigGrab (#35). A
     // @relaxation kernel never has one (it stays on AccumLive). Kernels may also
     // opt into the normal snapshot via cmd.needsOrigNormals.
     if ((cmd.grabMode || (nonAccum && cmd.accumulable && !cmd.relaxesBase) ||
@@ -828,10 +981,10 @@ struct CommandExecutor {
     {
       mesh::Mesh *m = nodes[0]->data->m;
       // TEMP + NOCOPY: stroke-transient, not undoable. NOCOPY keeps the meshlog
-      // from snapshotting these during a logged dyntopo step — their pages are
+      // from snapshotting these during a logged dyntopo step â€” their pages are
       // materialized lazily (only brushed verts), so a mid-stroke edge collapse
-      // would otherwise capture an unmaterialized page (null on WASM → warn+skip;
-      // a garbage pointer on native → crash, ImmediateTODOs #37). Interpolation
+      // would otherwise capture an unmaterialized page (null on WASM â†’ warn+skip;
+      // a garbage pointer on native â†’ crash, ImmediateTODOs #37). Interpolation
       // stays enabled (no NOINTERP): a displacement field is correct to
       // interpolate onto split verts, unlike an absolute snapshot.
       mesh::AttrRef &dispRef =
@@ -866,8 +1019,8 @@ struct CommandExecutor {
       // mid-stroke inherit an interpolated disp (and gen), so they arrive
       // already stamped and are skipped.
       //
-      // Normals are looser than positions — the spatial halo refresh can rewrite
-      // a vert's normal one fan-ring ahead of the brush — so when a kernel opted
+      // Normals are looser than positions â€” the spatial halo refresh can rewrite
+      // a vert's normal one fan-ring ahead of the brush â€” so when a kernel opted
       // into orig normals, each region leaf's SKIRT verts (its neighbor-owned
       // fan, exactly the set the halo can reach ahead of the region) are stamped
       // along with its own. The halo only refreshes fans of already-moved
@@ -914,6 +1067,34 @@ struct CommandExecutor {
       }
     }
 
+    // Prepared hooks see this command's initialized displacement base. Bind the
+    // executor-owned active column without creating or modifying a mesh layer.
+    if (preparedCavityActive && curCaptureTool == int(SculptBrushes::ENHANCE) &&
+        nodes.size())
+    {
+      auto *m = nodes[0]->data->m;
+      m->topo_cache.ensureRing1(*m);
+      PreparedEnhanceCache::Entry *entry = nullptr;
+      for (auto *node : nodes) {
+        for (int v : node->data->unique_verts) {
+          float3 contact = m->v.co[v];
+          if ((cmd.grabMode || (nonAccum && cmd.accumulable && !cmd.relaxesBase)) &&
+              ctx.dispVec && ctx.dispGen &&
+              ctx.dispGen->safe_get(v) == int(ctx.strokeGen))
+            contact -= ctx.dispVec->safe_get(v);
+          if (preparedCavityContact(
+                  *brush, false, contact, ctx.surfacePos, ctx.surfaceNo))
+          {
+            if (!entry)
+              entry = &preparedEnhance.entry(brush->enhance_rings, brush->enhance_inner);
+            preparedEnhance.fill(*entry, m, v);
+          } else {
+            preparedEnhance.write(v, float3(0, 0, 0));
+          }
+        }
+      }
+    }
+
     // View-normal automasking is DYNAMIC: resolve the stroke's params (shared
     // camera ray, limit, falloff) onto the ctx; strength() evaluates the factor
     // against each vertex's live normal on every call. No cache, no stamp
@@ -926,7 +1107,31 @@ struct CommandExecutor {
     // single-threaded, before the parallel kernel loop reads it via strength().
     ctx.automaskFactor = nullptr;
     ctx.automaskEnabled = false;
-    if (brush->automask_cavity && nodes.size() > 0) {
+    if (preparedCavityActive && brush->automask_cavity && nodes.size()) {
+      auto *m = nodes[0]->data->m;
+      preparedCavity.beginGeometry(nodes[0]->data->m, m->topo_stamp, int(m->v.capacity()));
+      PreparedCavityCache::Entry *entry = nullptr;
+      for (auto *node : nodes) {
+        for (int v : node->data->unique_verts) {
+          float3 contact = m->v.co[v];
+          if ((cmd.grabMode || (nonAccum && cmd.accumulable && !cmd.relaxesBase)) &&
+              ctx.dispVec && ctx.dispGen &&
+              ctx.dispGen->safe_get(v) == int(ctx.strokeGen))
+            contact -= ctx.dispVec->safe_get(v);
+          if (preparedCavityContact(
+                  *brush, cmd.unbounded, contact, ctx.surfacePos, ctx.surfaceNo))
+          {
+            if (!entry)
+              entry = &preparedCavity.entry(*brush);
+            preparedCavity.fill(*entry, MeshCavitySrc{m}, v);
+          } else {
+            preparedCavity.write(v, 1.0f);
+          }
+        }
+      }
+      ctx.automaskFactor = preparedCavity.active();
+      ctx.automaskEnabled = entry != nullptr;
+    } else if (brush->automask_cavity && nodes.size() > 0) {
       mesh::Mesh *m = nodes[0]->data->m;
       if (!m->topo_frozen || m->topo_cache.valid(*m)) {
         m->topo_cache.ensureRing1(*m);
@@ -1014,7 +1219,7 @@ struct CommandExecutor {
 
     // Border propagation: kernels flag only the node whose own verts moved, but
     // neighbouring leaves' tris draw replicas of (and integrate normals over) a
-    // moved border vert — flag those too, appending the vert as a normals hint.
+    // moved border vert â€” flag those too, appending the vert as a normals hint.
     if (nodes.size() > 1) {
       mesh::Mesh *mm = nodes[0]->data->m;
       // Stamp the dab's moved verts instead of hashing them into a Set: the
@@ -1043,7 +1248,7 @@ struct CommandExecutor {
             continue; // tris are stale; the pending full regen covers this leaf
           }
           // The candidates are exactly this leaf's foreign verts, so scan the
-          // tris only to (re)build that cache — not once per dab.
+          // tris only to (re)build that cache â€” not once per dab.
           tree->ensure_border_cache(node);
           bool touched = false;
           for (int v : node->data->foreign_verts) {
@@ -1061,7 +1266,7 @@ struct CommandExecutor {
     }
 
     /* coPrev bookkeeping: every vert this exec (kernel, execPost, layer fold)
-     * may have moved lives in `nodes` — queue them for the next needsCoPrev
+     * may have moved lives in `nodes` â€” queue them for the next needsCoPrev
      * refresh. Skipped under dyntopo (node pointers/element sets unstable;
      * the refresh falls back to a full snapshot there anyway). */
     if (!stepHasDyntopo) {
@@ -1075,7 +1280,7 @@ struct CommandExecutor {
 
     /* UV slide-reprojection: re-anchor the dab's moved verts' UVs on their
      * pre-move ring. Rides the coPrev snapshot, so only needsCoPrev kernels
-     * (the smooth family) qualify. Dyntopo strokes keep topology live —
+     * (the smooth family) qualify. Dyntopo strokes keep topology live â€”
      * reproject per dab (its ring changes under the stroke); frozen strokes
      * accumulate {vert -> first-seen pre-move position} and endStep flushes
      * once (a per-dab thaw would perturb the frozen-CSR stroke state). */
@@ -1155,7 +1360,7 @@ struct CommandExecutor {
         saver.updateSaved(c, sid, mask);
       }
       // Refill the face owner's GPU attribute streams: the deform kernels only
-      // flag Spatial_UpdateGPUGeom, which skips them — without this the
+      // flag Spatial_UpdateGPUGeom, which skips them â€” without this the
       // viewport keeps drawing the pre-reprojection UVs.
       if (tree) {
         const int ni = tree->treeMesh.f.node[m->l.f[m->c.l[c]]];
@@ -1169,18 +1374,18 @@ struct CommandExecutor {
 
   /** Whether a stroke with this brush must keep the mesh's disk/radial link
    * pages live. A brush that touches no live TOPO link during a dab lets the
-   * mesh sit topology-frozen — the pages dropped — for the whole stroke.
+   * mesh sit topology-frozen â€” the pages dropped â€” for the whole stroke.
    *
    * Three kernel facts answer it, all reflected out of the DSL by the registry
    * generators rather than enumerated here (a hand-kept enum list is how a new
    * kernel silently gets a frozen stroke, and reading a dropped page is a
-   * heap-layout-dependent UAF, not a wrong pixel — graded by
+   * heap-layout-dependent UAF, not a wrong pixel â€” graded by
    * tests/test_brush_live_links.cc):
    *
-   *  - a `for_neighbor` loop, which reads the 1-ring — but only its live-disk
+   *  - a `for_neighbor` loop, which reads the 1-ring â€” but only its live-disk
    *    instantiation walks links; the CSR one reads MeshTopoCache::ring1;
    *  - `@fulltopo`, i.e. a host pre-pass that walks live topology every dab
-   *    (the cross-field and enhance-details passes) — unconditional, since the
+   *    (the cross-field and enhance-details passes) â€” unconditional, since the
    *    thaw is what makes a stroke-start CSR snapshot go stale;
    *  - a `face` stage, dispatched per face, which reaches its verts through the
    *    live face loop.
@@ -1202,11 +1407,11 @@ struct CommandExecutor {
   /** The boundary-aware smooth brush reads the lazily-derived
    * `.boundary.vert.class`. Fold any pending boundary edits (seam marking,
    * poly-group paint) into it once at stroke start, while topology links are
-   * live — recomputeDirty walks the disk/radial cycles and would touch freed
+   * live â€” recomputeDirty walks the disk/radial cycles and would touch freed
    * pages under frozen topology.
    *
    * Gated on m->boundaryDirty: when nothing changed since the last recompute
-   * (the common case — e.g. plain smoothing with no boundaries marked) this is a
+   * (the common case â€” e.g. plain smoothing with no boundaries marked) this is a
    * no-op and, crucially, does NOT thaw. An unconditional thaw here perturbs the
    * frozen-topology CSR neighbor set the stroke relies on, making bsmooth
    * diverge from plain smooth even with zero boundaries. */
@@ -1265,7 +1470,7 @@ struct CommandExecutor {
     UniformValidationResult res;
     char buf[256];
 
-    // (A) Static manifest checks — independent of any configured dynamic.
+    // (A) Static manifest checks â€” independent of any configured dynamic.
     for (const auto &u : cmd.uniforms) {
       if (!u.hasRange)
         continue;
@@ -1280,7 +1485,7 @@ struct CommandExecutor {
         res.messages.append(string(buf));
         continue; // a broken range makes the default check meaningless
       }
-      if (u.isFloat && (u.def < u.rangeMin || u.def > u.rangeMax)) {
+      if (u.isFloat && u.hasDefault && (u.def < u.rangeMin || u.def > u.rangeMax)) {
         res.ok = false;
         snprintf(buf,
                  sizeof(buf),
@@ -1293,7 +1498,7 @@ struct CommandExecutor {
       }
     }
 
-    // (B) Dynamics checks — every prop carrying a configured device stack must
+    // (B) Dynamics checks â€” every prop carrying a configured device stack must
     // be a valid, dynamic-capable target of the active brush.
     if (brush && brush->props.struct_def) {
       for (props::Property *p : brush->props.struct_def->properties()) {
@@ -1302,7 +1507,7 @@ struct CommandExecutor {
           continue;
 
         const BrushUniformManifestEntry *entry = findUniformEntry(cmd, p->name);
-        if (!entry && !isCommonFloatProp(p->name)) {
+        if (!entry && !isCommonFloatProp(p->name) && p->name != string("invert")) {
           res.ok = false;
           snprintf(buf,
                    sizeof(buf),
@@ -1311,15 +1516,23 @@ struct CommandExecutor {
           res.messages.append(string(buf));
           continue;
         }
-        if (entry && !(entry->isFloat && entry->dynamic)) {
+        if (entry && !(entry->dynamic &&
+                       (entry->isFloat || entry->scalarType == props::Prop::INT32 ||
+                        entry->scalarType == props::Prop::BOOL)))
+        {
           res.ok = false;
           snprintf(buf,
                    sizeof(buf),
-                   "dynamic on '%s': uniform is @static / non-float (not "
+                   "dynamic on '%s': uniform is @static / unsupported (not "
                    "dynamic-capable)",
                    p->name.c_str());
           res.messages.append(string(buf));
           continue;
+        }
+        if (!props::Dynamics::validStack(dyn->devices)) {
+          res.ok = false;
+          res.messages.append(string("uniform '") + p->name +
+                              "': invalid or pending device stack");
         }
         for (const auto &dev : dyn->devices) {
           if (dev.curveTable.size() == 1) {
@@ -1360,14 +1573,222 @@ struct CommandExecutor {
   int queryUniformManifest(int brushType)
   {
     queriedUniforms.clear();
-    auto cmd = createCommand(static_cast<SculptBrushes>(brushType));
-    if (cmd.registerProps && brush && brush->props.struct_def) {
-      cmd.registerProps(*brush->props.struct_def);
+    canonicalUniforms_.clear();
+    querySource_ = this;
+    queryBrush_ = nullptr;
+    queryStruct_ = nullptr;
+    uniformQueryToken_ = allocateUniformQueryToken();
+    if (!uniformQueryToken_ || !brush || !brush->props.struct_def) {
+      lastRegistration = {props::PropError::ERROR_INVALID_OWNER, "query"};
+      return -1;
+    }
+    brush_command cmd;
+    if (!createDeclarationCommand(SculptBrushes(brushType), cmd)) {
+      lastRegistration = {props::PropError::ERROR_NOT_EXISTS, "kernel"};
+      return -1;
+    }
+    if (brush && brush->props.struct_def) {
+      lastRegistration = cmd.registerProps(*brush->props.struct_def);
+      if (!registrationSucceeded()) {
+        return -1;
+      }
+      // Initialize legacy working slots only after successful registration.
+      createCommand(SculptBrushes(brushType));
     }
     for (const auto &u : cmd.uniforms) {
       queriedUniforms.append(u);
+      canonicalUniforms_.append(u);
     }
+    queryBrush_ = brush;
+    queryStruct_ = brush->props.struct_def;
     return int(queriedUniforms.size());
+  }
+
+  BrushScalarResult
+  readUniformScalarChecked(int token, int uniformIndex, int scalarType, bool evaluate)
+  {
+    string name;
+    int error = checkedUniformName(token, uniformIndex, scalarType, name);
+    if (error) {
+      return {error, 0};
+    }
+    return brush->readScalarChecked(name, scalarType, evaluate);
+  }
+
+  int writeUniformScalarChecked(int token, int uniformIndex, int scalarType, double value)
+  {
+    string name;
+    int error = checkedUniformName(token, uniformIndex, scalarType, name);
+    if (error) {
+      return error;
+    }
+    return brush->writeScalarChecked(name, scalarType, value);
+  }
+
+  int configureUniformDynamicChecked(
+      int token, int uniformIndex, int scalarType, int device, int mode, float factor)
+  {
+    string name;
+    int error = checkedUniformName(token, uniformIndex, scalarType, name);
+    if (error) {
+      return error;
+    }
+    return brush->configureDynamicChecked(name, scalarType, device, mode, factor);
+  }
+
+  int enableUniformDynamicChecked(
+      int token, int uniformIndex, int scalarType, int device, int enabled)
+  {
+    string name;
+    int error = checkedUniformName(token, uniformIndex, scalarType, name);
+    if (error) {
+      return error;
+    }
+    return brush->enableDynamicChecked(name, scalarType, device, enabled);
+  }
+
+  int moveUniformDynamicChecked(
+      int token, int uniformIndex, int scalarType, int device, int index)
+  {
+    string name;
+    int error = checkedUniformName(token, uniformIndex, scalarType, name);
+    if (error) {
+      return error;
+    }
+    return brush->moveDynamicChecked(name, scalarType, device, index);
+  }
+
+  int clearUniformDynamicsChecked(int token, int uniformIndex, int scalarType)
+  {
+    string name;
+    int error = checkedUniformName(token, uniformIndex, scalarType, name);
+    if (error) {
+      return error;
+    }
+    return brush->clearDynamicsChecked(name, scalarType);
+  }
+
+  int replaceUniformDynamicTableChecked(int token,
+                                        int uniformIndex,
+                                        int scalarType,
+                                        int device,
+                                        util::Vector<float> &samples)
+  {
+    string name;
+    int error = checkedUniformName(token, uniformIndex, scalarType, name);
+    if (error) {
+      return error;
+    }
+    return brush->replaceDynamicTableChecked(name, scalarType, device, samples);
+  }
+
+  int setUniformDynamicSampleChecked(int token,
+                                     int uniformIndex,
+                                     int scalarType,
+                                     int device,
+                                     int index,
+                                     int count,
+                                     float value)
+  {
+    string name;
+    int error = checkedUniformName(token, uniformIndex, scalarType, name);
+    if (error) {
+      return error;
+    }
+    return brush->setDynamicSampleChecked(name, scalarType, device, index, count, value);
+  }
+
+  int replaceUniformDynamicsChecked(int token,
+                                    int uniformIndex,
+                                    int scalarType,
+                                    util::Vector<int> &devices,
+                                    util::Vector<int> &modes,
+                                    util::Vector<float> &factors,
+                                    util::Vector<int> &enabled,
+                                    util::Vector<int> &offsets,
+                                    util::Vector<float> &samples)
+  {
+    string name;
+    int error = checkedUniformName(token, uniformIndex, scalarType, name);
+    if (error) {
+      return error;
+    }
+    return brush->replaceDynamicsChecked(
+        name, scalarType, devices, modes, factors, enabled, offsets, samples);
+  }
+
+  int replaceUniformResponseDynamicsChecked(int token,
+                                            int uniformIndex,
+                                            int scalarType,
+                                            util::Vector<int> &devices,
+                                            util::Vector<int> &modes,
+                                            util::Vector<float> &factors,
+                                            util::Vector<int> &enabled,
+                                            util::Vector<int> &offsets,
+                                            util::Vector<float> &samples,
+                                            util::Vector<int> &kinds,
+                                            util::Vector<double> &parameters)
+  {
+    string name;
+    int error = checkedUniformName(token, uniformIndex, scalarType, name);
+    if (error) {
+      return error;
+    }
+    return brush->replaceResponseDynamicsChecked(name,
+                                                 scalarType,
+                                                 devices,
+                                                 modes,
+                                                 factors,
+                                                 enabled,
+                                                 offsets,
+                                                 samples,
+                                                 kinds,
+                                                 parameters);
+  }
+
+  bool registrationSucceeded()
+  {
+    if (lastRegistration.error == props::PropError::ERROR_NONE) {
+      return true;
+    }
+    fprintf(stderr,
+            "uniform declaration '%s': registration error %d\n",
+            lastRegistration.name.c_str(),
+            int(lastRegistration.error));
+    return false;
+  }
+
+  static bool createDeclarationCommand(SculptBrushes type, brush_command &command)
+  {
+    Brush scratch;
+    return createCommandSwitch<AccumLive>(type, true, &scratch, command);
+  }
+
+  bool prepareProgramDeclarations(BrushProgram *program)
+  {
+    if (!program || !brush || !brush->props.struct_def) {
+      lastRegistration = {props::PropError::ERROR_INVALID_OWNER, "program"};
+      return registrationSucceeded();
+    }
+    Vector<props::ScalarDeclaration> declarations;
+    for (const auto &entry : program->commands) {
+      if (entry.dynamicsOverrides.size() || entry.scalarOverrides.size() ||
+          entry.cavityCurveOverride.size())
+      {
+        lastRegistration = {props::PropError::ERROR_INVALID_VALUE,
+                            "typed program requires resolved execution"};
+        return registrationSucceeded();
+      }
+      brush_command command;
+      if (!createDeclarationCommand(entry.type, command)) {
+        lastRegistration = {props::PropError::ERROR_NOT_EXISTS, "kernel"};
+        return registrationSucceeded();
+      }
+      command.appendScalarDeclarations(declarations);
+    }
+    lastRegistration = brush->props.struct_def->registerScalars(
+        {declarations.data(), declarations.size()});
+    return registrationSucceeded();
   }
 
   BrushUniformManifestEntry *queriedUniformEntry(int idx)
@@ -1380,25 +1801,27 @@ struct CommandExecutor {
 
   void clearUniformDynamics(int idx)
   {
-    if (!brush || idx < 0 || idx >= int(queriedUniforms.size())) {
+    auto entry = uniformSnapshotChecked(uniformQueryToken(), idx);
+    if (entry.status) {
       return;
     }
-    brush->clearPropDynamicsByName(queriedUniforms[idx].name);
+    brush->clearPropDynamicsByName(entry.name);
   }
   void addUniformDynamic(int idx, int deviceType, int mixMode, float mixFactor)
   {
-    if (!brush || idx < 0 || idx >= int(queriedUniforms.size())) {
+    auto entry = uniformSnapshotChecked(uniformQueryToken(), idx);
+    if (entry.status) {
       return;
     }
-    brush->addPropDynamicByName(
-        queriedUniforms[idx].name, deviceType, mixMode, mixFactor);
+    brush->addPropDynamicByName(entry.name, deviceType, mixMode, mixFactor);
   }
   void setUniformDynamicSample(int idx, int deviceType, int i, int n, float value)
   {
-    if (!brush || idx < 0 || idx >= int(queriedUniforms.size())) {
+    auto entry = uniformSnapshotChecked(uniformQueryToken(), idx);
+    if (entry.status) {
       return;
     }
-    brush->setPropDynamicSampleByName(queriedUniforms[idx].name, deviceType, i, n, value);
+    brush->setPropDynamicSampleByName(entry.name, deviceType, i, n, value);
   }
 
   // Update the per-dab stroke frame: the stroke tangent (this dab origin minus
@@ -1437,22 +1860,9 @@ struct CommandExecutor {
                  float3 origin,
                  float3 normal)
   {
-    auto cmd = createCommand(brushType);
-
-    // Validate uniform dynamics once per stroke (first dab), before any mesh or
-    // topology state is touched: a misconfigured binding skips the whole stroke
-    // so the mesh is never mutated. Subsequent dabs of a failed stroke re-skip
-    // via the persisted flag.
-    if (isFirstOfStep) {
-      lastValidation = validateUniformDynamics(cmd);
-      strokeValidationFailed = !lastValidation.ok;
-      for (const auto &msg : lastValidation.messages) {
-        fprintf(stderr, "brush uniform validation: %s\n", msg.c_str());
-      }
-    }
-    if (strokeValidationFailed) {
+    if (!preflightRaw(brushType))
       return;
-    }
+    auto cmd = createCommand(brushType);
 
     // Enter/leave frozen-topology mode per dab (both calls early-out when
     // already in the target state, so this is cheap to re-check every dab).
@@ -1474,7 +1884,7 @@ struct CommandExecutor {
     }
 
     // Per-dab host pre-passes (brush_hooks.cc): ENHANCE's region fill and
-    // FEATURE_ALIGN's cross-field update — the latter previously ran only on
+    // FEATURE_ALIGN's cross-field update â€” the latter previously ran only on
     // the execProgram path. Topology is live for both (brushNeedsLiveLinks).
     if (hooks && hooks->dabPre && nodes->size() > 0) {
       hooks->dabPre(hookCtx);
@@ -1509,6 +1919,31 @@ struct CommandExecutor {
       hooks->dabPost(hookCtx);
     }
   }
+
+  /** Validate raw source semantics without publishing or mutating geometry. */
+  bool preflightRaw(SculptBrushes type);
+  bool preflightRawProgram(BrushProgram *program);
+  bool supportsResolved(SculptBrushes type);
+  bool supportsResolvedProgram(BrushProgram *program);
+  bool createPreparedCommand(SculptBrushes type, brush_command &command);
+
+  /** Checked CPU mesh entry with evaluated spherical node selection. */
+  props::ScalarRegistrationResult applyResolvedDab(SculptBrushes brushType,
+                                                   float3 center,
+                                                   float3 normal,
+                                                   bool validateOnly = false,
+                                                   bool grabAdd = false);
+
+  /** Preflight the whole program and restore scalar working state after execution. */
+  props::ScalarRegistrationResult
+  applyResolvedProgram(BrushProgram *program,
+                       float3 center,
+                       float3 normal,
+                       bool validateOnly = false,
+                       bool grabAdd = false,
+                       dyntopo::DynTopoParams *topology = nullptr,
+                       float topologyRadius = 0,
+                       uint32_t topologySeed = 0);
 
   /** Run one hook phase over a program's commands, once per distinct hook fn
    * (BSMOOTH and FEATURE_ALIGN share the boundary-class refresh, which must
@@ -1548,36 +1983,12 @@ struct CommandExecutor {
                    float3 origin,
                    float3 normal)
   {
-    if (!prog || prog->commands.size() == 0) {
+    if (!preflightRawProgram(prog))
       return;
-    }
-
-    // Validate every sub-command's uniform dynamics once per stroke, before any
-    // mesh/topology state is touched. registerProps first so the manifest props
-    // exist to inspect (idempotent — the per-command loop re-registers). Any
-    // failure skips the whole program so the mesh is never mutated.
-    if (isFirstOfStep) {
-      lastValidation = UniformValidationResult{};
-      for (auto &entry : prog->commands) {
-        auto cmd = createCommand(entry.type);
-        if (cmd.registerProps && brush && brush->props.struct_def) {
-          cmd.registerProps(*brush->props.struct_def);
-        }
-        UniformValidationResult r = validateUniformDynamics(cmd);
-        if (!r.ok) {
-          lastValidation.ok = false;
-          for (auto &msg : r.messages)
-            lastValidation.messages.append(msg);
-        }
-      }
-      strokeValidationFailed = !lastValidation.ok;
-      for (const auto &msg : lastValidation.messages) {
-        fprintf(stderr, "brush uniform validation: %s\n", msg.c_str());
-      }
-    }
-    if (strokeValidationFailed) {
+    if (!prog->commands.size())
       return;
-    }
+    if (!prepareProgramDeclarations(prog))
+      return;
 
     // Topology freeze/thaw is decided once for the whole dab: thaw if *any*
     // sub-command needs live disk links (a live-disk smooth), otherwise freeze
@@ -1591,7 +2002,7 @@ struct CommandExecutor {
       }
       mesh::Mesh *m = (*nodes)[0]->data->m;
       // Stroke-start hooks (e.g. the boundary-class refresh) must precede the
-      // freeze below — they need live links.
+      // freeze below â€” they need live links.
       if (isFirstOfStep) {
         BrushHookCtx hookCtx{*this, m, nodes, brush, isFirstOfStep};
         runProgramHooks(prog, &BrushHooks::stepPreFreeze, hookCtx);
@@ -1658,9 +2069,6 @@ struct CommandExecutor {
       // defaults seeded), then resolve common props + the kernel's uniforms
       // into cached scalars (applies device dynamics). The uniform half is
       // generated per brush from its `uniform` declarations.
-      if (cmd.registerProps && brush->props.struct_def) {
-        cmd.registerProps(*brush->props.struct_def);
-      }
       brush->loadCommonProps(&brush->deviceInputCtx);
       if (cmd.loadUniformProps) {
         cmd.loadUniformProps(*brush, &brush->deviceInputCtx);
@@ -1748,7 +2156,7 @@ struct CommandExecutor {
     // Combined callbacks: meshlog (undo) fanned with the spatial tree's
     // incremental-ownership handlers. getSpatialCallbacks() returns a shared
     // persistent member, so copy its three std::functions by value before
-    // composing — never alias it across dabs.
+    // composing â€” never alias it across dabs.
     mesh::MeshCallbacks combined;
     mesh::MeshCallbacks *cb = nullptr;
     mesh::MeshCallbacks *sp = tree->getSpatialCallbacks();
@@ -1826,7 +2234,7 @@ struct CommandExecutor {
     return st.splits + st.collapses;
   }
 
-  /** One unified brush dab — the single dab sequence shared by every client
+  /** One unified brush dab â€” the single dab sequence shared by every client
    * (TS app, debug interactive/script). Runs, in order: optional dyntopo pre-pass
    * (when params != nullptr), spatial node filter, deform program, then the
    * per-dab meshlog topo-chunk seal. Dyntopo runs BEFORE the deform so the brush
@@ -1847,13 +2255,16 @@ struct CommandExecutor {
     if (!tree || !tree->m) {
       return 0;
     }
+    if (!preflightRawProgram(prog) || !prepareProgramDeclarations(prog)) {
+      return -1;
+    }
     int topoApplied = 0;
     if (params) {
       topoApplied = applyDynTopoDab(center, radius, params, seed);
     }
     // `radius` here is the node-filter radius only (the falloff uses
     // brush->radius). A from-orig grab-class program ignores the host's
-    // drag-widened radius and takes the pinned region instead — the executor
+    // drag-widened radius and takes the pinned region instead â€” the executor
     // owns that policy (see grabFilterNodes).
     float pinRadius = 0.0f;
     for (const BrushCommandEntry &e : prog->commands) {
@@ -1872,13 +2283,15 @@ struct CommandExecutor {
     lastDabNodeCount = int(nodes.size());
     if (nodes.size() > 0) {
       execProgram(prog, &nodes, center, normal);
+      if (!lastUniformValidationOk())
+        return -1;
     }
     if (params && meshLog) {
       /* Per-dab seal: deactivate this dab's topo chunk NOW (finalizing its
          Created end-states) so the next dab's topo captures land in a fresh
          chunk. Without it one step-wide chunk captures an Existed vert's
-         begin-body at its FIRST TOPO touch — mid-step for verts the brush
-         deformed in earlier dabs — and that stale body, sitting at position
+         begin-body at its FIRST TOPO touch â€” mid-step for verts the brush
+         deformed in earlier dabs â€” and that stale body, sitting at position
          0, wins the reverse-order undo over the element store's true
          pre-step row (the multistep undo corruption). */
       meshLog->pushTopoChunk();
@@ -1899,6 +2312,8 @@ struct CommandExecutor {
     if (!tree || !tree->m) {
       return 0;
     }
+    if (!preflightRaw(brushType))
+      return -1;
     mesh::Mesh *m = tree->m;
     int topoApplied = 0;
     if (params) {
@@ -1917,13 +2332,15 @@ struct CommandExecutor {
     lastDabNodeCount = int(nodes.size());
     if (nodes.size() > 0) {
       execBrush(m, brushType, &nodes, center, normal);
+      if (!lastUniformValidationOk())
+        return -1;
     }
     if (params && meshLog) {
       /* Per-dab seal: deactivate this dab's topo chunk NOW (finalizing its
          Created end-states) so the next dab's topo captures land in a fresh
          chunk. Without it one step-wide chunk captures an Existed vert's
-         begin-body at its FIRST TOPO touch — mid-step for verts the brush
-         deformed in earlier dabs — and that stale body, sitting at position
+         begin-body at its FIRST TOPO touch â€” mid-step for verts the brush
+         deformed in earlier dabs â€” and that stale body, sitting at position
          0, wins the reverse-order undo over the element store's true
          pre-step row (the multistep undo corruption). */
       meshLog->pushTopoChunk();
@@ -1968,7 +2385,7 @@ struct CommandExecutor {
   }
 
   /** Add another region to the currently-open preview session (a mirror
-   * image of the same driver tick) without resetting it — the whole group
+   * image of the same driver tick) without resetting it â€” the whole group
    * rolls back together via one rollbackPreviewDab(). See
    * MeshLog::extendPreviewDab. */
   void extendPreviewDab(float3 center, float radius)
@@ -1986,7 +2403,30 @@ struct CommandExecutor {
     if (!meshLog || !tree) {
       return;
     }
+    const bool prepared = preparedPreviewStroke_ && previewActive();
     meshLog->rollbackPreviewDab(tree->m, tree);
+    if (prepared) {
+      for (auto &ref : tree->m->v.attrs.attrs) {
+        if (ref.type != mesh::AttrType::INT || (ref.name != string(".brush.disp.gen") &&
+                                                ref.name != string(".brush.dab.gen")))
+          continue;
+        for (int v : meshLog->preview_.vertIdx)
+          if (auto *stamp = static_cast<int *>(ref.data->getElemData(v)))
+            *stamp = 0;
+      }
+      for (auto *node : tree->leaves()) {
+        node->baseStampGen = 0;
+        node->baseStampOpts = -1;
+      }
+      preparedCavity.reset();
+      preparedEnhance.reset();
+      coPrevFull_ = false;
+      coPrevDirty_.clear();
+      coPrevGen_++;
+      uvReprojPending_.clear();
+      brush->resetStrokePath();
+      isFirstOfStep = true;
+    }
   }
 
   /** True if a preview snapshot is pending rollback (diagnostic / debug-app use). */
@@ -2004,16 +2444,27 @@ struct CommandExecutor {
     if (!meshLog) {
       return;
     }
+    if (preparedPreviewStroke_ && previewActive())
+      preparedPreviewClosed_ = true;
     meshLog->commitPreviewDab();
   }
 
   void beginStep(bool hasDyntopo)
   {
+    preparedCavity.reset();
+    preparedEnhance.reset();
+    preparedStepOpen_ = true;
+    preparedPreviewStroke_ = false;
+    preparedPreviewClosed_ = false;
+    preparedStepTree_ = tree;
+    preparedStepMesh_ = tree ? tree->m : nullptr;
+    preparedStepBrush_ = brush;
+    preparedStepLog_ = meshLog;
     isFirstOfStep = true;
     strokeValidationFailed = false;
     stepHasDyntopo = hasDyntopo;
     /* Positions may have changed since the last stroke (undo, ops, other
-     * tools) — force the stroke's first needsCoPrev exec to take a full
+     * tools) â€” force the stroke's first needsCoPrev exec to take a full
      * snapshot. The gen bump keeps stale node stamps from suppressing
      * dirty-list appends. */
     coPrevFull_ = false;
@@ -2028,10 +2479,12 @@ struct CommandExecutor {
     if (meshLog) {
       meshLog->beginStep(hasDyntopo);
     }
+    preparedStepId_ = meshLog ? meshLog->lastStepId() : -1;
   }
 
   void endStep()
   {
+    preparedStepOpen_ = false;
     isFirstOfStep = false;
     /* Flush the stroke's deferred UV reprojection while the step is still
      * open, so the corner captures land inside it. */
@@ -2054,7 +2507,7 @@ struct CommandExecutor {
 };
 
 /** Declared in accum_mode.h; AccumKind::Grab write-back uses it. First image to
- * write vert `v` this dab → stamp curDabGen and return true (re-base from orig);
+ * write vert `v` this dab â†’ stamp curDabGen and return true (re-base from orig);
  * an already-stamped vert returns false (later image adds). The page was
  * pre-materialized in exec(), so this only reads/writes an existing slot. With no
  * stamp attr (single-image stroke, dab counter idle) every write re-bases. */
@@ -2073,7 +2526,7 @@ inline bool grabClaimFirstTouch(const CommandExecutor &exec, int v)
 
 /** Build a kernel's BrushCommandDef without a live stroke. csrNeighbors=false:
  * the manifest and the flags are identical for both neighbor policies. The
- * scratch Brush is what lets an extra (out-of-repo) kernel report its manifest —
+ * scratch Brush is what lets an extra (out-of-repo) kernel report its manifest â€”
  * createExtraBrush seeds uniform defaults into the Brush it is handed, so a null
  * one made every extra kernel report unhandled (and therefore empty), which is
  * precisely the case the grid-attr capability rule has to answer for. False when
@@ -2147,14 +2600,14 @@ inline BrushDefFlags brushDefFlagsFor(SculptBrushes brushType)
 /**
  * Stateless query object for a kernel's codegen-set metadata. Default-constructible
  * and stroke-independent (unlike CommandExecutor, which needs a spatial tree and a
- * live Brush), so a host can ask about any tool before — or without — a stroke and
+ * live Brush), so a host can ask about any tool before â€” or without â€” a stroke and
  * drive its dab shaping / GPU kernel choice off the answer instead of a per-brush
  * conditional. Everything is addressed by index: the binding runtime can't marshal
  * a JS string into a `util::string` method arg.
  */
 struct BrushMetadata {
   Vector<BrushAttrManifestEntry> queriedAttrs;
-  // Result slots — the binding runtime hands bound structs back by pointer, so
+  // Result slots â€” the binding runtime hands bound structs back by pointer, so
   // the values have to outlive the call.
   BrushDefFlags queriedFlags;
 

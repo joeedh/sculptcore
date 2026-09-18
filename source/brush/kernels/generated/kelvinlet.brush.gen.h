@@ -57,20 +57,44 @@ static void kelvinlet(CommandCtx<TYPES> &ctx)
   float b;
   kelvinletPrep<TYPES>(ctx, a, b);
   for (auto &v : ctx.template vertexIter<AccMode>(ctx.node)) {
-    float3 r = (v.co - ctx.brush.grabFrom);
-    float r2 = (r).dot(r);
-    float e = std::sqrt((r2 + (ctx.brush.radius * ctx.brush.radius)));
-    float invE = (1.0f / e);
-    float invE3 = ((invE * invE) * invE);
-    float coef1 = ((((a - b)) * invE) + ((((0.5f * a) * ctx.brush.radius) * ctx.brush.radius) * invE3));
-    float coef2 = ((b * (ctx.brush.grabTo).dot(r)) * invE3);
-    float3 disp = ((ctx.brush.grabTo * coef1) + (r * coef2));
-    float norm = ((1.5f * a) - b);
-    if ((norm < 9.9999999999999995e-07f)) {
-      norm = 9.9999999999999995e-07f;
+    if ((ctx.brush.radius <= 0.0f)) {
+      continue;
     }
-    disp = (disp * ((ctx.brush.radius / norm)));
-    v.co += (disp * (((ctx.masks(v.v, v.mask) * ctx.unboundedWindow(v.co)) * ctx.sampleBrushTex(v.co, ctx.surfaceNo))));
+    float window = ctx.unboundedWindow(v.co);
+    if ((window == 0.0f)) {
+      continue;
+    }
+    float forceScale = std::max(std::max(std::abs(ctx.brush.grabTo[0]), std::abs(ctx.brush.grabTo[1])), std::abs(ctx.brush.grabTo[2]));
+    if ((forceScale == 0.0f)) {
+      continue;
+    }
+    float3 p = v.co;
+    float3 r = (p - ctx.brush.grabFrom);
+    float eps = ctx.brush.radius;
+    float maxR = std::max(std::max(std::abs(r[0]), std::abs(r[1])), std::abs(r[2]));
+    if ((maxR > 1e+30f)) {
+      r = ((p * 0.5f) - (ctx.brush.grabFrom * 0.5f));
+      eps = (ctx.brush.radius * 0.5f);
+    }
+    float rawNorm = ((1.5f * a) - b);
+    float norm = std::max(rawNorm, 9.9999999999999995e-07f);
+    float originGain = (rawNorm / norm);
+    float3 disp = (ctx.brush.grabTo * originGain);
+    if ((((r[0] != 0.0f) || (r[1] != 0.0f)) || (r[2] != 0.0f))) {
+      float scale = std::max(std::max(std::abs(r[0]), std::abs(r[1])), std::max(std::abs(r[2]), eps));
+      float3 scaledR = (r / scale);
+      float scaledEps = (eps / scale);
+      float e = std::sqrt(((scaledR).dot(scaledR) + (scaledEps * scaledEps)));
+      float3 q = (scaledR / e);
+      float t = (scaledEps / e);
+      float isotropic = (t * ((originGain - ((((0.5f * a) / norm)) * ((1.0f - (t * t)))))));
+      float anisotropic = ((b / norm) * t);
+      float3 force = (ctx.brush.grabTo / forceScale);
+      float3 contracted = ((force * isotropic) + (q * (((force).dot(q) * anisotropic))));
+      contracted = float3(std::clamp<float>(contracted[0], (-1.0f), 1.0f), std::clamp<float>(contracted[1], (-1.0f), 1.0f), std::clamp<float>(contracted[2], (-1.0f), 1.0f));
+      disp = (contracted * forceScale);
+    }
+    v.co += (disp * (((ctx.masks(v.v, v.mask) * window) * ctx.sampleBrushTex(v.co, ctx.surfaceNo))));
     ctx.node.affected_verts.append(v.v);
     any_moved = true;
   }
@@ -94,17 +118,14 @@ static void createKelvinletBrush(BrushCommandDef<CommandCtx<TYPES>> &def)
   def.execPre  = kelvinletPre<TYPES>;
   def.exec     = kelvinlet<TYPES, AccMode>;
   def.execPost = kelvinletPost<TYPES>;
+  def.preparedHostNoop = true;
+  def.preparedScalarSafe = true;
   def.accumulable = false;
   def.grabModeCapable = true;
   def.unbounded = true;
-  def.uniforms.append(sculptcore::brush::BrushUniformManifestEntry{"mu", true, true, 1.0f, true, 9.9999999999999995e-07f, 100.0f});
-  def.uniforms.append(sculptcore::brush::BrushUniformManifestEntry{"nu", true, true, 0.40000000000000002f, true, 0.0f, 0.499f});
-  def.uniforms.append(sculptcore::brush::BrushUniformManifestEntry{"radius", true, true, 0.0f, false, 0.0f, 0.0f});
-  def.registerProps = [](sculptcore::props::StructDef &sd) {
-    if (!sd.has("mu")) sd.Float32("mu", "mu").Default(1.0f);
-    if (!sd.has("nu")) sd.Float32("nu", "nu").Default(0.40000000000000002f);
-    if (!sd.has("radius")) sd.Float32("radius", "radius").Default(0.0f);
-  };
+  def.uniforms.append(sculptcore::brush::BrushUniformManifestEntry{"mu", true, true, 1.0, true, 9.9999999999999995e-07, 100.0, -1, sculptcore::props::Prop::FLOAT32, true});
+  def.uniforms.append(sculptcore::brush::BrushUniformManifestEntry{"nu", true, true, 0.40000000000000002, true, 0.0, 0.499, -1, sculptcore::props::Prop::FLOAT32, true});
+  def.uniforms.append(sculptcore::brush::BrushUniformManifestEntry{"radius", true, true, 0.0, false, 0.0, 0.0, -1, sculptcore::props::Prop::FLOAT32, false});
   def.loadUniformProps = [](sculptcore::brush::Brush &brush, sculptcore::props::DeviceInputCtx *ctx) {
     brush.mu = brush.props.lookupValue<float>("mu", 1.0f, ctx);
     brush.nu = brush.props.lookupValue<float>("nu", 0.40000000000000002f, ctx);

@@ -136,15 +136,15 @@ static void createFeaturealignBrush(BrushCommandDef<CommandCtx<TYPES>> &def)
   def.execPre  = featurealignPre<TYPES>;
   def.exec     = featurealign<TYPES, NbrSrc, AccMode>;
   def.execPost = featurealignPost<TYPES>;
+  def.preparedHostNoop = true;
+  def.preparedScalarSafe = true;
   def.needsCoPrev = true;
   def.accumulable = true;
   def.relaxesBase = true;
   def.attrs.append(sculptcore::brush::BrushAttrManifestEntry{"field", "crossfield", sculptcore::mesh::AttrType::FLOAT3, sculptcore::brush::AttrElemDomain::Vertex, true, false, 0});
   def.attrs.append(sculptcore::brush::BrushAttrManifestEntry{"vclass", ".boundary.vert.class", sculptcore::mesh::AttrType::INT, sculptcore::brush::AttrElemDomain::Vertex, true, false, 0});
-  def.uniforms.append(sculptcore::brush::BrushUniformManifestEntry{"rake", true, false, 0.0f, false, 0.0f, 0.0f});
-  def.uniforms.append(sculptcore::brush::BrushUniformManifestEntry{"projection", true, false, 0.0f, false, 0.0f, 0.0f});
-  def.registerProps = [](sculptcore::props::StructDef &sd) {
-  };
+  def.uniforms.append(sculptcore::brush::BrushUniformManifestEntry{"rake", true, false, 0.0, false, 0.0, 0.0, -1, sculptcore::props::Prop::FLOAT32, false});
+  def.uniforms.append(sculptcore::brush::BrushUniformManifestEntry{"projection", true, false, 0.0, false, 0.0, 0.0, -1, sculptcore::props::Prop::FLOAT32, false});
   def.loadUniformProps = [](sculptcore::brush::Brush &brush, sculptcore::props::DeviceInputCtx *ctx) {
   };
 }

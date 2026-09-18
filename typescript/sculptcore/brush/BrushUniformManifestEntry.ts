@@ -1,4 +1,5 @@
 /* Warning: auto-generated file! Regenerate with 'pnpm build' in 'tools/' folder. */
+import type {Prop} from '../props/Prop'
 
 /** Auto-generated file */
 /* eslint-disable @typescript-eslint/no-misused-new */
@@ -21,10 +22,13 @@ export interface BrushUniformManifestEntry {
   name: string
   isFloat: boolean
   dynamic: boolean
-  def: float
+  def: double
   hasRange: boolean
-  rangeMin: float
-  rangeMax: float
+  rangeMin: double
+  rangeMax: double
   storeSlot: int32
+  scalarType: Prop
+  hasDefault: boolean
+  status: int32
   new (): BrushUniformManifestEntry
 }

@@ -134,6 +134,11 @@ void GridTree::build(GridLevelDomain &d, int leafVertTarget)
     leaves[li].ownedVerts.append(v);
   }
 
+  boundsLeaves_.clear();
+  boundsSeen_.resize(leaves.size());
+  for (auto &seen : boundsSeen_) {
+    seen = 0;
+  }
   refreshAllBounds();
 }
 
@@ -166,6 +171,25 @@ void GridTree::refreshBounds(std::span<const int> leafIds)
 {
   for (int li : leafIds) {
     leafBounds(leaves[li]);
+  }
+}
+
+void GridTree::refreshVertexBounds(std::span<const int> verts)
+{
+  boundsLeaves_.clear();
+  for (int v : verts) {
+    const auto occurrences = d_->occurrences(v);
+    for (size_t i = 0; i < occurrences.size(); i += 3) {
+      int leaf = leafOfGrid[occurrences[i]];
+      if (!boundsSeen_[leaf]) {
+        boundsSeen_[leaf] = 1;
+        boundsLeaves_.append(leaf);
+      }
+    }
+  }
+  refreshBounds({boundsLeaves_.data(), boundsLeaves_.size()});
+  for (int leaf : boundsLeaves_) {
+    boundsSeen_[leaf] = 0;
   }
 }
 

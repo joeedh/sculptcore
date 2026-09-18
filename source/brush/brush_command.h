@@ -125,21 +125,23 @@ struct BrushDefFlags {
 // loadProps, and validate dynamic bindings before a stroke. See
 // documentation/plans/sbrush-dynamic-uniforms.md.
 struct BrushUniformManifestEntry {
-  string name;           // DSL uniform field name
-  bool isFloat = false;  // scalar float — the only dynamic-capable kind
-  bool dynamic = false;  // may be driven by device dynamics (float, non-@static)
-  float def = 0.0f;      // authored default (DSL `= <n>`), Wave 1
+  string name;          // DSL uniform field name
+  bool isFloat = false; // Retained for consumers that select float uniforms.
+  bool dynamic = false;
+  double def = 0.0;
   bool hasRange = false; // DSL `@range(min, max)` present, Wave 1
-  float rangeMin = 0.0f;
-  float rangeMax = 0.0f;
-  // Extra-kernel store uniforms: Brush.namedFloats index, set via
-  // setNamedFloat(slot, v). -1 = backed by a Brush member (the default).
+  double rangeMin = 0.0;
+  double rangeMax = 0.0;
+  // Extra-kernel slot in the matching typed Brush store. Slots are independent
+  // per scalar type. -1 means a native Brush member.
   int storeSlot = -1;
+  props::Prop scalarType = props::Prop::INVALID_TYPE;
+  bool hasDefault = true;
+  int status = 0; // Owned snapshot errors; generated manifests have status zero.
 
-  // Bound read-only so the TS bridge (Wave 5) can enumerate the active brush's
-  // manifest by index and read each entry's name/range/dynamic flag. Returned
-  // by pointer from CommandExecutor::queriedUniformEntry — never marshalled by
-  // value, so a copy constructor is unneeded.
+  // Reflected fields are mutable. Legacy queriedUniformEntry returns a borrowed
+  // pointer invalidated by requery; uniformSnapshotChecked returns an owned copy.
+  // Checked operations use a separate private canonical mapping.
   static litestl::binding::types::Struct<BrushUniformManifestEntry> *defineBindings()
   {
     using namespace litestl::binding;
@@ -156,6 +158,9 @@ struct BrushUniformManifestEntry {
     BIND_STRUCT_MEMBER(st, rangeMin);
     BIND_STRUCT_MEMBER(st, rangeMax);
     BIND_STRUCT_MEMBER(st, storeSlot);
+    BIND_STRUCT_MEMBER(st, scalarType);
+    BIND_STRUCT_MEMBER(st, hasDefault);
+    BIND_STRUCT_MEMBER(st, status);
     return st;
   }
 };
@@ -193,6 +198,7 @@ struct CommandCtxBase {
   bool isFirstOfStep = false;
 
   meshlog::MeshLog *meshLog = nullptr;
+  bool preparedAttributeCapture = false;
   mesh::Mesh *m = nullptr;
 
   // Pre-dab snapshot of the whole mesh's vertex positions, owned by the
@@ -357,8 +363,12 @@ template <CommandTypes TYPES> struct CommandCtx : public CommandCtxBase {
     if (!(R > 0.0f)) {
       return 1.0f;
     }
-    float d = (co - surfacePos).length();
-    float t = std::clamp((R - d) / (0.2f * R), 0.0f, 1.0f);
+    // Promote before subtraction/squaring: a valid float cutoff can be far
+    // below sqrt(FLT_MIN) or above sqrt(FLT_MAX).
+    const double d = std::hypot(double(co[0]) - double(surfacePos[0]),
+                                double(co[1]) - double(surfacePos[1]),
+                                double(co[2]) - double(surfacePos[2]));
+    float t = float(std::clamp((double(R) - d) / (0.2 * double(R)), 0.0, 1.0));
     return t * t * (3.0f - 2.0f * t);
   }
 
@@ -477,6 +487,11 @@ template <typename CTX> struct BrushCommandDef {
   std::function<void(CommandCtxBase &, std::span<node_type *>)> execPre;
   std::function<void(CTX &)> exec;
   std::function<void(CommandCtxBase &, std::span<node_type *>)> execPost;
+  // Generated conservative eligibility for immutable prepared scalar execution.
+  // Default false keeps hand-authored/stale factories out of the checked path.
+  bool preparedScalarSafe = false;
+  // Every composed host callback is proven a no-op over validated scalar domains.
+  bool preparedHostNoop = false;
   BrushFlags flags = BrushFlags::None;
   // Set by codegen for brushes that use for_neighbor: the executor snapshots
   // the mesh's vertex positions into ctx.co_prev before the per-node loop.
@@ -527,12 +542,35 @@ template <typename CTX> struct BrushCommandDef {
   // registers these as props, applies device dynamics in loadProps, and
   // validates dynamic bindings before a stroke.
   Vector<BrushUniformManifestEntry> uniforms;
-  // Generated per-brush prop wiring (see sbrush-dynamic-uniforms plan).
-  // registerProps registers this kernel's scalar-float uniforms as props with
-  // their authored defaults (idempotent — guarded by name); loadUniformProps
-  // resolves them each dab (applying device dynamics) into the cached Brush
-  // members the kernel reads. The fixed common props live on Brush directly.
-  std::function<void(props::StructDef &)> registerProps;
+  void appendScalarDeclarations(Vector<props::ScalarDeclaration> &out) const
+  {
+    for (const auto &uniform : uniforms) {
+      props::Prop type = uniform.scalarType;
+      if (type == props::Prop::INVALID_TYPE && uniform.isFloat) {
+        type = props::Prop::FLOAT32;
+      }
+      if (type == props::Prop::FLOAT32 || type == props::Prop::INT32 ||
+          type == props::Prop::BOOL)
+      {
+        out.append(props::ScalarDeclaration{uniform.name,
+                                            type,
+                                            uniform.hasDefault,
+                                            uniform.def,
+                                            uniform.hasRange,
+                                            uniform.rangeMin,
+                                            uniform.rangeMax,
+                                            uniform.dynamic});
+      }
+    }
+  }
+
+  props::ScalarRegistrationResult registerProps(props::StructDef &definition) const
+  {
+    Vector<props::ScalarDeclaration> declarations;
+    appendScalarDeclarations(declarations);
+    return definition.registerScalars({declarations.data(), declarations.size()});
+  }
+
   std::function<void(Brush &, props::DeviceInputCtx *)> loadUniformProps;
 };
 

@@ -67,7 +67,8 @@ struct PropBaseType {
     return st;
   }
 
-  PropBaseType(Prop type, util::string name = "", util::string ui_name = "") : type(type)
+  PropBaseType(Prop type, util::string name = "", util::string ui_name = "")
+      : type(type), name(std::move(name)), ui_name(std::move(ui_name))
   {
   }
 

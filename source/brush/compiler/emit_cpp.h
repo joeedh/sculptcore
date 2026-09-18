@@ -14,14 +14,20 @@ struct EmitResult {
 };
 
 struct CppEmitOptions {
-  // Extra (out-of-repo) kernel: float uniforms that are not member-backed
-  // lower to Brush.namedFloats store slots (kExtraSlot_<name>, assigned by
+  // Extra (out-of-repo) kernel: scalar fields that are not member-backed
+  // lower to typed Brush named store slots (kExtraSlot_<name>, assigned by
   // the registry). Off (built-in kernels): an unlisted name is a codegen
   // error — the honesty tripwire on Brush::builtinPropNames.
   bool extras = false;
 };
 
 EmitResult emitCpp(const Brush &brush, const CppEmitOptions &opts = {});
+
+/** Shared semantic gate for C++ output and registry collection. */
+Vector<string> validateCppFields(const Brush &brush, const CppEmitOptions &opts = {});
+
+/** Factory stem shared by generated definitions and registry call sites. */
+string kernelCppName(const string &attrName, const string &cppName);
 
 /** `--texture-unit` C++ half: the guarded defaults + eval definitions plus
  * the param manifests for a scratch brush wrapping a .stex unit's textures
@@ -35,9 +41,12 @@ bool isCtxBaseName(const char *name);
 /** True when `name` lowers to a Brush member (Brush::builtinPropNames). */
 bool isMemberBackedName(const char *name);
 
-/** True when `f` reads through the named-float store in an extra kernel:
+/** True when `f` reads through a typed named store in an extra kernel:
  * a non-attr, non-ctx-builtin field whose name is not member-backed. Type
- * validity (float-only) is the emitter's/registry's job. */
+ * validity (float/int/bool) is the emitter's/registry's job. */
 bool fieldUsesStore(const Field &f);
+
+/** Scalar storage and native semantic eligibility for a declared field. */
+bool fieldDynamicCapable(const Field &field);
 
 } // namespace sculptcore::brush::sbrush

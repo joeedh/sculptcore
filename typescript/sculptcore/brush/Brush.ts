@@ -1,5 +1,6 @@
 /* Warning: auto-generated file! Regenerate with 'pnpm build' in 'tools/' folder. */
 import type {TextureProgramParam} from './TextureProgramParam'
+import type {BrushScalarResult} from './BrushScalarResult'
 import type {FalloffKind} from '../gpu/FalloffKind'
 import type {FalloffShape} from '../gpu/FalloffShape'
 import type {TexCoordSpace} from './TexCoordSpace'
@@ -77,6 +78,8 @@ export interface Brush {
   getNamedFloat(slot: int32): float
   setFalloffCurveEntry(i: int32, f: float): void
   setCavityCurveEntry(i: int32, f: float): void
+  replaceFalloffCurveChecked(samples: float[]): boolean
+  replaceCavityCurveChecked(samples: float[]): boolean
   setTexture(width: int32, height: int32, pixels: float[]): void
   clearTexture(): void
   setTextureScript(source: int8[]): boolean
@@ -96,6 +99,7 @@ export interface Brush {
   textureUsesMap(): boolean
   loadProps(): void
   writeProps(): void
+  writeDabProps(): void
   pushDeviceInput(type: int32, value: float): void
   clearDeviceInputs(): void
   clearPropDynamics(propId: int32): void
@@ -128,5 +132,72 @@ export interface Brush {
   ): void
   setPropsParent(parentProps: StructProp): void
   clearPropsParent(): void
+  replaceCommonResponseDynamicsChecked(
+    propId: int32,
+    scalarType: int32,
+    devices: int32[],
+    modes: int32[],
+    factors: float[],
+    enabled: int32[],
+    offsets: int32[],
+    samples: float[],
+    kinds: int32[],
+    parameters: double[]
+  ): int32
+  configurationGeneration(): uint64
+  readCommonScalarChecked(
+    propId: int32,
+    scalarType: int32,
+    evaluate: boolean
+  ): BrushScalarResult
+  writeCommonScalarChecked(
+    propId: int32,
+    scalarType: int32,
+    value: double
+  ): int32
+  configureCommonDynamicChecked(
+    propId: int32,
+    scalarType: int32,
+    device: int32,
+    mode: int32,
+    factor: float
+  ): int32
+  enableCommonDynamicChecked(
+    propId: int32,
+    scalarType: int32,
+    device: int32,
+    enabled: int32
+  ): int32
+  moveCommonDynamicChecked(
+    propId: int32,
+    scalarType: int32,
+    device: int32,
+    index: int32
+  ): int32
+  clearCommonDynamicsChecked(propId: int32, scalarType: int32): int32
+  replaceCommonDynamicTableChecked(
+    propId: int32,
+    scalarType: int32,
+    device: int32,
+    samples: float[]
+  ): int32
+  setCommonDynamicSampleChecked(
+    propId: int32,
+    scalarType: int32,
+    device: int32,
+    index: int32,
+    count: int32,
+    value: float
+  ): int32
+  replaceCommonDynamicsChecked(
+    propId: int32,
+    scalarType: int32,
+    devices: int32[],
+    modes: int32[],
+    factors: float[],
+    enabled: int32[],
+    offsets: int32[],
+    samples: float[]
+  ): int32
   new (): Brush
 }

@@ -10,27 +10,11 @@ from .litestl_math import float3
 from enum import IntEnum
 from typing import TypeAlias
 
-class GPUCmdType(IntEnum):
-    DRAW_TRIS = 0
-    DRAW_TRI_STRIP = 1
-    DRAW_LINES = 2
-    DRAW_POINTS = 3
-
-class FalloffKind(IntEnum):
-    LINEAR = 1
-    SMOOTHSTEP = 0
-    GUASSIAN = 2
-    CURVE = 3
-
 class GPUBufferType(IntEnum):
     BUFFER_ARRAY = 0
     BUFFER_INDEX = 1
     BUFFER_TEXTURE = 2
     BUFFER_UNIFORM = 3
-
-class GPUFetchMode(IntEnum):
-    FETCH_NONE = 0
-    FETCH_FLOAT = 1
 
 class FalloffShape(IntEnum):
     SPHERICAL = 0
@@ -84,6 +68,73 @@ class UniformBindType(IntEnum):
     UBYTE3 = 30
     UBYTE4 = 31
 
+class FalloffKind(IntEnum):
+    LINEAR = 1
+    SMOOTHSTEP = 0
+    GUASSIAN = 2
+    CURVE = 3
+
+class GPUFetchMode(IntEnum):
+    FETCH_NONE = 0
+    FETCH_FLOAT = 1
+
+class GPUCmdType(IntEnum):
+    DRAW_TRIS = 0
+    DRAW_TRI_STRIP = 1
+    DRAW_LINES = 2
+    DRAW_POINTS = 3
+
+class Buffer(BoundObject):
+    @property
+    def name(self) -> str: ...
+    type: GPUType
+    size: int32
+    elemsize: int32
+    mode: GPUFetchMode
+    target: GPUBufferType
+    data: pointer
+    update_buffer: bool
+    update_start: int32
+    update_end: int32
+    def resize(self, size: int32) -> None: ...
+    def dirty(self) -> None: ...
+
+class DrawPipeline(BoundObject):
+    @property
+    def batches(self) -> BoundVector[DrawBatch]: ...
+    @property
+    def blocks(self) -> BoundVector[UniformBlockInstance]: ...
+
+class UniformDef_float3(BoundObject):
+    @property
+    def name(self) -> str: ...
+    type: GPUType
+    elemSize: int32
+    @property
+    def defaultValue(self) -> float3: ...
+
+class AttrDef(BoundObject):
+    @property
+    def name(self) -> str: ...
+    type: GPUType
+    elemSize: int32
+
+class DrawCommand(BoundObject):
+    type: GPUCmdType
+    shader: ShaderDef | None
+    @property
+    def attrs(self) -> BoundVector[Buffer]: ...
+    start: int32
+    end: int32
+    primCount: int32
+    @property
+    def blocks(self) -> BoundVector[UniformBlockInstance]: ...
+
+class UniformBlockInstance(BoundObject):
+    def_: UniformBlockDef | None
+    @property
+    def data(self) -> BoundVector[uint8]: ...
+
 class GPUManager(BoundObject):
     @property
     def buffers(self) -> BoundVector[Buffer]: ...
@@ -121,33 +172,12 @@ class DrawBatch(BoundObject):
     @property
     def blocks(self) -> BoundVector[UniformBlockInstance]: ...
 
-class Buffer(BoundObject):
-    @property
-    def name(self) -> str: ...
-    type: GPUType
-    size: int32
-    elemsize: int32
-    mode: GPUFetchMode
-    target: GPUBufferType
-    data: pointer
-    update_buffer: bool
-    update_start: int32
-    update_end: int32
-    def resize(self, size: int32) -> None: ...
-    def dirty(self) -> None: ...
-
 class UniformDef_float(BoundObject):
     @property
     def name(self) -> str: ...
     type: GPUType
     elemSize: int32
     defaultValue: float
-
-class DrawPipeline(BoundObject):
-    @property
-    def batches(self) -> BoundVector[DrawBatch]: ...
-    @property
-    def blocks(self) -> BoundVector[UniformBlockInstance]: ...
 
 class ShaderDef(BoundObject):
     @property
@@ -159,14 +189,6 @@ class ShaderDef(BoundObject):
     @property
     def uniforms(self) -> BoundVector[UniformBlockDef]: ...
 
-class UniformDef_float3(BoundObject):
-    @property
-    def name(self) -> str: ...
-    type: GPUType
-    elemSize: int32
-    @property
-    def defaultValue(self) -> float3: ...
-
 class UniformDef_float2(BoundObject):
     @property
     def name(self) -> str: ...
@@ -174,27 +196,5 @@ class UniformDef_float2(BoundObject):
     elemSize: int32
     @property
     def defaultValue(self) -> float2: ...
-
-class AttrDef(BoundObject):
-    @property
-    def name(self) -> str: ...
-    type: GPUType
-    elemSize: int32
-
-class DrawCommand(BoundObject):
-    type: GPUCmdType
-    shader: ShaderDef | None
-    @property
-    def attrs(self) -> BoundVector[Buffer]: ...
-    start: int32
-    end: int32
-    primCount: int32
-    @property
-    def blocks(self) -> BoundVector[UniformBlockInstance]: ...
-
-class UniformBlockInstance(BoundObject):
-    def_: UniformBlockDef | None
-    @property
-    def data(self) -> BoundVector[uint8]: ...
 
 UniformBindTypeMap: TypeAlias = UniformDef_float | UniformDef_float2 | UniformDef_float3

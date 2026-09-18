@@ -454,7 +454,10 @@ struct GridsStore {
   size_t evictedBytes() const;
 
 private:
+  friend struct GridStrokeLog;
+  static uint64_t nextIncarnation();
   struct LevelData {
+    uint64_t incarnation = nextIncarnation();
     int gridsPerChunk = 1;
     /** This (channel, level) carries authored values the level below has not
      * been given -- the attribute half of Multires::downPropPending_, kept
@@ -470,6 +473,7 @@ private:
   };
 
   struct Channel {
+    uint64_t incarnation = nextIncarnation();
     litestl::util::string name;
     int floatsPerElem = 1;
     GridElemDomain domain = GridElemDomain::Vertex;

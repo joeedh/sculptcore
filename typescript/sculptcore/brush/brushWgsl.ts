@@ -140,8 +140,10 @@ fn brush_masks(vid: u32, m: f32) -> f32 {
 fn brush_unbounded_window(p: vec3<f32>) -> f32 {
   let sb_R = brush_u.radius * brush_u.unbounded_extent;
   if (!(sb_R > 0.0)) { return 1.0; }
-  let sb_d = length(p - ctx_u.surfacePos);
-  let sb_t = clamp((sb_R - sb_d) / (0.2 * sb_R), 0.0, 1.0);
+  let sb_offset = p - ctx_u.surfacePos;
+  if (max(max(abs(sb_offset.x), abs(sb_offset.y)), abs(sb_offset.z)) >= sb_R) { return 0.0; }
+  let sb_d = length(sb_offset / sb_R);
+  let sb_t = clamp((1.0 - sb_d) / 0.2, 0.0, 1.0);
   return sb_t * sb_t * (3.0 - 2.0 * sb_t);
 }
 
@@ -439,8 +441,10 @@ fn brush_masks(vid: u32, m: f32) -> f32 {
 fn brush_unbounded_window(p: vec3<f32>) -> f32 {
   let sb_R = brush_u.radius * brush_u.unbounded_extent;
   if (!(sb_R > 0.0)) { return 1.0; }
-  let sb_d = length(p - ctx_u.surfacePos);
-  let sb_t = clamp((sb_R - sb_d) / (0.2 * sb_R), 0.0, 1.0);
+  let sb_offset = p - ctx_u.surfacePos;
+  if (max(max(abs(sb_offset.x), abs(sb_offset.y)), abs(sb_offset.z)) >= sb_R) { return 0.0; }
+  let sb_d = length(sb_offset / sb_R);
+  let sb_t = clamp((1.0 - sb_d) / 0.2, 0.0, 1.0);
   return sb_t * sb_t * (3.0 - 2.0 * sb_t);
 }
 
@@ -744,8 +748,10 @@ fn brush_masks(vid: u32, m: f32) -> f32 {
 fn brush_unbounded_window(p: vec3<f32>) -> f32 {
   let sb_R = brush_u.radius * brush_u.unbounded_extent;
   if (!(sb_R > 0.0)) { return 1.0; }
-  let sb_d = length(p - ctx_u.surfacePos);
-  let sb_t = clamp((sb_R - sb_d) / (0.2 * sb_R), 0.0, 1.0);
+  let sb_offset = p - ctx_u.surfacePos;
+  if (max(max(abs(sb_offset.x), abs(sb_offset.y)), abs(sb_offset.z)) >= sb_R) { return 0.0; }
+  let sb_d = length(sb_offset / sb_R);
+  let sb_t = clamp((1.0 - sb_d) / 0.2, 0.0, 1.0);
   return sb_t * sb_t * (3.0 - 2.0 * sb_t);
 }
 
@@ -1010,8 +1016,10 @@ fn brush_masks(vid: u32, m: f32) -> f32 {
 fn brush_unbounded_window(p: vec3<f32>) -> f32 {
   let sb_R = brush_u.radius * brush_u.unbounded_extent;
   if (!(sb_R > 0.0)) { return 1.0; }
-  let sb_d = length(p - ctx_u.surfacePos);
-  let sb_t = clamp((sb_R - sb_d) / (0.2 * sb_R), 0.0, 1.0);
+  let sb_offset = p - ctx_u.surfacePos;
+  if (max(max(abs(sb_offset.x), abs(sb_offset.y)), abs(sb_offset.z)) >= sb_R) { return 0.0; }
+  let sb_d = length(sb_offset / sb_R);
+  let sb_t = clamp((1.0 - sb_d) / 0.2, 0.0, 1.0);
   return sb_t * sb_t * (3.0 - 2.0 * sb_t);
 }
 
@@ -1155,6 +1163,8 @@ struct BrushUniforms {
   coord_space: u32,
   tex_repeat: f32,
   stroke_path_count: u32,
+  enhance_rings: i32,
+  enhance_inner: i32,
 };
 
 struct CtxUniforms {
@@ -1270,8 +1280,10 @@ fn brush_masks(vid: u32, m: f32) -> f32 {
 fn brush_unbounded_window(p: vec3<f32>) -> f32 {
   let sb_R = brush_u.radius * brush_u.unbounded_extent;
   if (!(sb_R > 0.0)) { return 1.0; }
-  let sb_d = length(p - ctx_u.surfacePos);
-  let sb_t = clamp((sb_R - sb_d) / (0.2 * sb_R), 0.0, 1.0);
+  let sb_offset = p - ctx_u.surfacePos;
+  if (max(max(abs(sb_offset.x), abs(sb_offset.y)), abs(sb_offset.z)) >= sb_R) { return 0.0; }
+  let sb_d = length(sb_offset / sb_R);
+  let sb_t = clamp((1.0 - sb_d) / 0.2, 0.0, 1.0);
   return sb_t * sb_t * (3.0 - 2.0 * sb_t);
 }
 
@@ -1537,8 +1549,10 @@ fn brush_masks(vid: u32, m: f32) -> f32 {
 fn brush_unbounded_window(p: vec3<f32>) -> f32 {
   let sb_R = brush_u.radius * brush_u.unbounded_extent;
   if (!(sb_R > 0.0)) { return 1.0; }
-  let sb_d = length(p - ctx_u.surfacePos);
-  let sb_t = clamp((sb_R - sb_d) / (0.2 * sb_R), 0.0, 1.0);
+  let sb_offset = p - ctx_u.surfacePos;
+  if (max(max(abs(sb_offset.x), abs(sb_offset.y)), abs(sb_offset.z)) >= sb_R) { return 0.0; }
+  let sb_d = length(sb_offset / sb_R);
+  let sb_t = clamp((1.0 - sb_d) / 0.2, 0.0, 1.0);
   return sb_t * sb_t * (3.0 - 2.0 * sb_t);
 }
 
@@ -1871,8 +1885,10 @@ fn brush_masks(vid: u32, m: f32) -> f32 {
 fn brush_unbounded_window(p: vec3<f32>) -> f32 {
   let sb_R = brush_u.radius * brush_u.unbounded_extent;
   if (!(sb_R > 0.0)) { return 1.0; }
-  let sb_d = length(p - ctx_u.surfacePos);
-  let sb_t = clamp((sb_R - sb_d) / (0.2 * sb_R), 0.0, 1.0);
+  let sb_offset = p - ctx_u.surfacePos;
+  if (max(max(abs(sb_offset.x), abs(sb_offset.y)), abs(sb_offset.z)) >= sb_R) { return 0.0; }
+  let sb_d = length(sb_offset / sb_R);
+  let sb_t = clamp((1.0 - sb_d) / 0.2, 0.0, 1.0);
   return sb_t * sb_t * (3.0 - 2.0 * sb_t);
 }
 
@@ -2128,8 +2144,10 @@ fn brush_masks(vid: u32, m: f32) -> f32 {
 fn brush_unbounded_window(p: vec3<f32>) -> f32 {
   let sb_R = brush_u.radius * brush_u.unbounded_extent;
   if (!(sb_R > 0.0)) { return 1.0; }
-  let sb_d = length(p - ctx_u.surfacePos);
-  let sb_t = clamp((sb_R - sb_d) / (0.2 * sb_R), 0.0, 1.0);
+  let sb_offset = p - ctx_u.surfacePos;
+  if (max(max(abs(sb_offset.x), abs(sb_offset.y)), abs(sb_offset.z)) >= sb_R) { return 0.0; }
+  let sb_d = length(sb_offset / sb_R);
+  let sb_t = clamp((1.0 - sb_d) / 0.2, 0.0, 1.0);
   return sb_t * sb_t * (3.0 - 2.0 * sb_t);
 }
 
@@ -2436,8 +2454,10 @@ fn brush_masks(vid: u32, m: f32) -> f32 {
 fn brush_unbounded_window(p: vec3<f32>) -> f32 {
   let sb_R = brush_u.radius * brush_u.unbounded_extent;
   if (!(sb_R > 0.0)) { return 1.0; }
-  let sb_d = length(p - ctx_u.surfacePos);
-  let sb_t = clamp((sb_R - sb_d) / (0.2 * sb_R), 0.0, 1.0);
+  let sb_offset = p - ctx_u.surfacePos;
+  if (max(max(abs(sb_offset.x), abs(sb_offset.y)), abs(sb_offset.z)) >= sb_R) { return 0.0; }
+  let sb_d = length(sb_offset / sb_R);
+  let sb_t = clamp((1.0 - sb_d) / 0.2, 0.0, 1.0);
   return sb_t * sb_t * (3.0 - 2.0 * sb_t);
 }
 
@@ -2700,8 +2720,10 @@ fn brush_masks(vid: u32, m: f32) -> f32 {
 fn brush_unbounded_window(p: vec3<f32>) -> f32 {
   let sb_R = brush_u.radius * brush_u.unbounded_extent;
   if (!(sb_R > 0.0)) { return 1.0; }
-  let sb_d = length(p - ctx_u.surfacePos);
-  let sb_t = clamp((sb_R - sb_d) / (0.2 * sb_R), 0.0, 1.0);
+  let sb_offset = p - ctx_u.surfacePos;
+  if (max(max(abs(sb_offset.x), abs(sb_offset.y)), abs(sb_offset.z)) >= sb_R) { return 0.0; }
+  let sb_d = length(sb_offset / sb_R);
+  let sb_t = clamp((1.0 - sb_d) / 0.2, 0.0, 1.0);
   return sb_t * sb_t * (3.0 - 2.0 * sb_t);
 }
 
@@ -2818,20 +2840,44 @@ fn main(
   var b: f32;
   prep(&a, &b);
 
-  var r: vec3<f32> = (v_co - ctx_u.grabFrom);
-  var r2: f32 = dot(r, r);
-  var e: f32 = sqrt((r2 + (brush_u.radius * brush_u.radius)));
-  var invE: f32 = (1.0 / e);
-  var invE3: f32 = ((invE * invE) * invE);
-  var coef1: f32 = ((((a - b)) * invE) + ((((0.5 * a) * brush_u.radius) * brush_u.radius) * invE3));
-  var coef2: f32 = ((b * dot(ctx_u.grabTo, r)) * invE3);
-  var disp: vec3<f32> = ((ctx_u.grabTo * coef1) + (r * coef2));
-  var norm: f32 = ((1.5 * a) - b);
-  if ((norm < 9.9999999999999995e-07)) {
-    norm = 9.9999999999999995e-07;
+  if ((brush_u.radius <= 0.0)) {
+    return;
   }
-  disp = (disp * ((brush_u.radius / norm)));
-  v_co += (disp * (((brush_masks(sb_vidx, v_mask) * brush_unbounded_window(v_co)) * brush_sample_tex(v_co, ctx_u.surfaceNo))));
+  var window: f32 = brush_unbounded_window(v_co);
+  if ((window == 0.0)) {
+    return;
+  }
+  var forceScale: f32 = max(max(abs(ctx_u.grabTo.x), abs(ctx_u.grabTo.y)), abs(ctx_u.grabTo.z));
+  if ((forceScale == 0.0)) {
+    return;
+  }
+  var p: vec3<f32> = v_co;
+  var r: vec3<f32> = (p - ctx_u.grabFrom);
+  var eps: f32 = brush_u.radius;
+  var maxR: f32 = max(max(abs(r.x), abs(r.y)), abs(r.z));
+  if ((maxR > 1e+30)) {
+    r = ((p * 0.5) - (ctx_u.grabFrom * 0.5));
+    eps = (brush_u.radius * 0.5);
+  }
+  var rawNorm: f32 = ((1.5 * a) - b);
+  var norm: f32 = max(rawNorm, 9.9999999999999995e-07);
+  var originGain: f32 = (rawNorm / norm);
+  var disp: vec3<f32> = (ctx_u.grabTo * originGain);
+  if ((((r.x != 0.0) || (r.y != 0.0)) || (r.z != 0.0))) {
+    var scale: f32 = max(max(abs(r.x), abs(r.y)), max(abs(r.z), eps));
+    var scaledR: vec3<f32> = (r / scale);
+    var scaledEps: f32 = (eps / scale);
+    var e: f32 = sqrt((dot(scaledR, scaledR) + (scaledEps * scaledEps)));
+    var q: vec3<f32> = (scaledR / e);
+    var t: f32 = (scaledEps / e);
+    var isotropic: f32 = (t * ((originGain - ((((0.5 * a) / norm)) * ((1.0 - (t * t)))))));
+    var anisotropic: f32 = ((b / norm) * t);
+    var force: vec3<f32> = (ctx_u.grabTo / forceScale);
+    var contracted: vec3<f32> = ((force * isotropic) + (q * ((dot(force, q) * anisotropic))));
+    contracted = vec3<f32>(clamp(contracted.x, (-1.0), 1.0), clamp(contracted.y, (-1.0), 1.0), clamp(contracted.z, (-1.0), 1.0));
+    disp = (contracted * forceScale);
+  }
+  v_co += (disp * (((brush_masks(sb_vidx, v_mask) * window) * brush_sample_tex(v_co, ctx_u.surfaceNo))));
 
   let sb_first = dab_stamp[sb_vidx] != brush_u.grab_dab_gen;
   dab_stamp[sb_vidx] = brush_u.grab_dab_gen;
@@ -2975,8 +3021,10 @@ fn brush_masks(vid: u32, m: f32) -> f32 {
 fn brush_unbounded_window(p: vec3<f32>) -> f32 {
   let sb_R = brush_u.radius * brush_u.unbounded_extent;
   if (!(sb_R > 0.0)) { return 1.0; }
-  let sb_d = length(p - ctx_u.surfacePos);
-  let sb_t = clamp((sb_R - sb_d) / (0.2 * sb_R), 0.0, 1.0);
+  let sb_offset = p - ctx_u.surfacePos;
+  if (max(max(abs(sb_offset.x), abs(sb_offset.y)), abs(sb_offset.z)) >= sb_R) { return 0.0; }
+  let sb_d = length(sb_offset / sb_R);
+  let sb_t = clamp((1.0 - sb_d) / 0.2, 0.0, 1.0);
   return sb_t * sb_t * (3.0 - 2.0 * sb_t);
 }
 
@@ -3235,8 +3283,10 @@ fn brush_masks(vid: u32, m: f32) -> f32 {
 fn brush_unbounded_window(p: vec3<f32>) -> f32 {
   let sb_R = brush_u.radius * brush_u.unbounded_extent;
   if (!(sb_R > 0.0)) { return 1.0; }
-  let sb_d = length(p - ctx_u.surfacePos);
-  let sb_t = clamp((sb_R - sb_d) / (0.2 * sb_R), 0.0, 1.0);
+  let sb_offset = p - ctx_u.surfacePos;
+  if (max(max(abs(sb_offset.x), abs(sb_offset.y)), abs(sb_offset.z)) >= sb_R) { return 0.0; }
+  let sb_d = length(sb_offset / sb_R);
+  let sb_t = clamp((1.0 - sb_d) / 0.2, 0.0, 1.0);
   return sb_t * sb_t * (3.0 - 2.0 * sb_t);
 }
 
@@ -3495,8 +3545,10 @@ fn brush_masks(vid: u32, m: f32) -> f32 {
 fn brush_unbounded_window(p: vec3<f32>) -> f32 {
   let sb_R = brush_u.radius * brush_u.unbounded_extent;
   if (!(sb_R > 0.0)) { return 1.0; }
-  let sb_d = length(p - ctx_u.surfacePos);
-  let sb_t = clamp((sb_R - sb_d) / (0.2 * sb_R), 0.0, 1.0);
+  let sb_offset = p - ctx_u.surfacePos;
+  if (max(max(abs(sb_offset.x), abs(sb_offset.y)), abs(sb_offset.z)) >= sb_R) { return 0.0; }
+  let sb_d = length(sb_offset / sb_R);
+  let sb_t = clamp((1.0 - sb_d) / 0.2, 0.0, 1.0);
   return sb_t * sb_t * (3.0 - 2.0 * sb_t);
 }
 
@@ -3761,8 +3813,10 @@ fn brush_masks(vid: u32, m: f32) -> f32 {
 fn brush_unbounded_window(p: vec3<f32>) -> f32 {
   let sb_R = brush_u.radius * brush_u.unbounded_extent;
   if (!(sb_R > 0.0)) { return 1.0; }
-  let sb_d = length(p - ctx_u.surfacePos);
-  let sb_t = clamp((sb_R - sb_d) / (0.2 * sb_R), 0.0, 1.0);
+  let sb_offset = p - ctx_u.surfacePos;
+  if (max(max(abs(sb_offset.x), abs(sb_offset.y)), abs(sb_offset.z)) >= sb_R) { return 0.0; }
+  let sb_d = length(sb_offset / sb_R);
+  let sb_t = clamp((1.0 - sb_d) / 0.2, 0.0, 1.0);
   return sb_t * sb_t * (3.0 - 2.0 * sb_t);
 }
 
@@ -4002,8 +4056,10 @@ fn brush_masks(vid: u32, m: f32) -> f32 { return 1.0 - m; }
 fn brush_unbounded_window(p: vec3<f32>) -> f32 {
   let sb_R = brush_u.radius * brush_u.unbounded_extent;
   if (!(sb_R > 0.0)) { return 1.0; }
-  let sb_d = length(p - ctx_u.surfacePos);
-  let sb_t = clamp((sb_R - sb_d) / (0.2 * sb_R), 0.0, 1.0);
+  let sb_offset = p - ctx_u.surfacePos;
+  if (max(max(abs(sb_offset.x), abs(sb_offset.y)), abs(sb_offset.z)) >= sb_R) { return 0.0; }
+  let sb_d = length(sb_offset / sb_R);
+  let sb_t = clamp((1.0 - sb_d) / 0.2, 0.0, 1.0);
   return sb_t * sb_t * (3.0 - 2.0 * sb_t);
 }
 
@@ -4253,8 +4309,10 @@ fn brush_masks(vid: u32, m: f32) -> f32 {
 fn brush_unbounded_window(p: vec3<f32>) -> f32 {
   let sb_R = brush_u.radius * brush_u.unbounded_extent;
   if (!(sb_R > 0.0)) { return 1.0; }
-  let sb_d = length(p - ctx_u.surfacePos);
-  let sb_t = clamp((sb_R - sb_d) / (0.2 * sb_R), 0.0, 1.0);
+  let sb_offset = p - ctx_u.surfacePos;
+  if (max(max(abs(sb_offset.x), abs(sb_offset.y)), abs(sb_offset.z)) >= sb_R) { return 0.0; }
+  let sb_d = length(sb_offset / sb_R);
+  let sb_t = clamp((1.0 - sb_d) / 0.2, 0.0, 1.0);
   return sb_t * sb_t * (3.0 - 2.0 * sb_t);
 }
 
@@ -4520,8 +4578,10 @@ fn brush_masks(vid: u32, m: f32) -> f32 {
 fn brush_unbounded_window(p: vec3<f32>) -> f32 {
   let sb_R = brush_u.radius * brush_u.unbounded_extent;
   if (!(sb_R > 0.0)) { return 1.0; }
-  let sb_d = length(p - ctx_u.surfacePos);
-  let sb_t = clamp((sb_R - sb_d) / (0.2 * sb_R), 0.0, 1.0);
+  let sb_offset = p - ctx_u.surfacePos;
+  if (max(max(abs(sb_offset.x), abs(sb_offset.y)), abs(sb_offset.z)) >= sb_R) { return 0.0; }
+  let sb_d = length(sb_offset / sb_R);
+  let sb_t = clamp((1.0 - sb_d) / 0.2, 0.0, 1.0);
   return sb_t * sb_t * (3.0 - 2.0 * sb_t);
 }
 
@@ -4794,8 +4854,10 @@ fn brush_masks(vid: u32, m: f32) -> f32 {
 fn brush_unbounded_window(p: vec3<f32>) -> f32 {
   let sb_R = brush_u.radius * brush_u.unbounded_extent;
   if (!(sb_R > 0.0)) { return 1.0; }
-  let sb_d = length(p - ctx_u.surfacePos);
-  let sb_t = clamp((sb_R - sb_d) / (0.2 * sb_R), 0.0, 1.0);
+  let sb_offset = p - ctx_u.surfacePos;
+  if (max(max(abs(sb_offset.x), abs(sb_offset.y)), abs(sb_offset.z)) >= sb_R) { return 0.0; }
+  let sb_d = length(sb_offset / sb_R);
+  let sb_t = clamp((1.0 - sb_d) / 0.2, 0.0, 1.0);
   return sb_t * sb_t * (3.0 - 2.0 * sb_t);
 }
 
@@ -5061,8 +5123,10 @@ fn brush_masks(vid: u32, m: f32) -> f32 {
 fn brush_unbounded_window(p: vec3<f32>) -> f32 {
   let sb_R = brush_u.radius * brush_u.unbounded_extent;
   if (!(sb_R > 0.0)) { return 1.0; }
-  let sb_d = length(p - ctx_u.surfacePos);
-  let sb_t = clamp((sb_R - sb_d) / (0.2 * sb_R), 0.0, 1.0);
+  let sb_offset = p - ctx_u.surfacePos;
+  if (max(max(abs(sb_offset.x), abs(sb_offset.y)), abs(sb_offset.z)) >= sb_R) { return 0.0; }
+  let sb_d = length(sb_offset / sb_R);
+  let sb_t = clamp((1.0 - sb_d) / 0.2, 0.0, 1.0);
   return sb_t * sb_t * (3.0 - 2.0 * sb_t);
 }
 
@@ -5329,8 +5393,10 @@ fn brush_masks(vid: u32, m: f32) -> f32 {
 fn brush_unbounded_window(p: vec3<f32>) -> f32 {
   let sb_R = brush_u.radius * brush_u.unbounded_extent;
   if (!(sb_R > 0.0)) { return 1.0; }
-  let sb_d = length(p - ctx_u.surfacePos);
-  let sb_t = clamp((sb_R - sb_d) / (0.2 * sb_R), 0.0, 1.0);
+  let sb_offset = p - ctx_u.surfacePos;
+  if (max(max(abs(sb_offset.x), abs(sb_offset.y)), abs(sb_offset.z)) >= sb_R) { return 0.0; }
+  let sb_d = length(sb_offset / sb_R);
+  let sb_t = clamp((1.0 - sb_d) / 0.2, 0.0, 1.0);
   return sb_t * sb_t * (3.0 - 2.0 * sb_t);
 }
 
@@ -5598,8 +5664,10 @@ fn brush_masks(vid: u32, m: f32) -> f32 {
 fn brush_unbounded_window(p: vec3<f32>) -> f32 {
   let sb_R = brush_u.radius * brush_u.unbounded_extent;
   if (!(sb_R > 0.0)) { return 1.0; }
-  let sb_d = length(p - ctx_u.surfacePos);
-  let sb_t = clamp((sb_R - sb_d) / (0.2 * sb_R), 0.0, 1.0);
+  let sb_offset = p - ctx_u.surfacePos;
+  if (max(max(abs(sb_offset.x), abs(sb_offset.y)), abs(sb_offset.z)) >= sb_R) { return 0.0; }
+  let sb_d = length(sb_offset / sb_R);
+  let sb_t = clamp((1.0 - sb_d) / 0.2, 0.0, 1.0);
   return sb_t * sb_t * (3.0 - 2.0 * sb_t);
 }
 
@@ -5929,8 +5997,10 @@ fn brush_masks(vid: u32, m: f32) -> f32 {
 fn brush_unbounded_window(p: vec3<f32>) -> f32 {
   let sb_R = brush_u.radius * brush_u.unbounded_extent;
   if (!(sb_R > 0.0)) { return 1.0; }
-  let sb_d = length(p - ctx_u.surfacePos);
-  let sb_t = clamp((sb_R - sb_d) / (0.2 * sb_R), 0.0, 1.0);
+  let sb_offset = p - ctx_u.surfacePos;
+  if (max(max(abs(sb_offset.x), abs(sb_offset.y)), abs(sb_offset.z)) >= sb_R) { return 0.0; }
+  let sb_d = length(sb_offset / sb_R);
+  let sb_t = clamp((1.0 - sb_d) / 0.2, 0.0, 1.0);
   return sb_t * sb_t * (3.0 - 2.0 * sb_t);
 }
 

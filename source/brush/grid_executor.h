@@ -29,6 +29,7 @@
 #include "brushes/all.h"
 #include "capture_policy.h"
 #include "grid_attr_bind.h"
+#include "prepared_cavity.h"
 
 #include "spatial/spatial.h"
 #include "subdiv/grid_domain.h"
@@ -137,8 +138,10 @@ inline void gridsFoldStroke(subdiv::GridLevelDomain *domain,
       mr->gridsWriteback(level, changed, grids);
     }
     if (wroteMask) {
+      const int maskChannel = domain->ensureMaskChannel();
       if (log) {
-        log->captureGrids(gridSpan, mr->store.findChannel(string("mask")));
+        log->captureGrids(gridSpan, maskChannel);
+        log->captureFinerMask(gridSpan, maskChannel);
       }
       domain->flushMaskToStore(touched);
     }
@@ -467,6 +470,8 @@ struct GridBrushExecutor {
   using brush_command = BrushCommandDef<CommandCtx<GridBrushExecutor>>;
 
   Brush *brush = nullptr;
+  PreparedCavityCache preparedCavity;
+  bool preparedCavityActive = false;
   subdiv::GridLevelDomain *domain = nullptr;
   subdiv::GridTree *tree = nullptr;
   /** Optional undo log; null disables capture. */
@@ -544,8 +549,14 @@ struct GridBrushExecutor {
    * Rebuilds the leaf-node array and the domain-sized stroke sidecars. */
   void attach(subdiv::GridLevelDomain *d)
   {
+    preparedCavity.reset();
+    stepOpen_ = false;
     domain = d;
     tree = d->ensureTree();
+    attachedDomain_ = d;
+    attachedTree_ = tree;
+    attachedMultires_ = d->multires();
+    attachedGeneration_ = attachedMultires_->domainGeneration();
     int vc = d->vertCount();
     nodes_.clear();
     nodes_.resize(tree->leaves.size());
@@ -712,6 +723,8 @@ struct GridBrushExecutor {
 
   void beginStep()
   {
+    preparedCavity.reset();
+    stepOpen_ = true;
     isFirstOfStep = true;
     strokeSeq_++;
     strokeGen = strokeSeq_;
@@ -734,6 +747,10 @@ struct GridBrushExecutor {
     if (log) {
       log->beginStep();
     }
+    stepEditTarget_ = attachedMultires_ ? attachedMultires_->editTarget() : -1;
+    stepWritebackChannel_ = attachedMultires_ ? attachedMultires_->writebackChannel() : 0;
+    stepLog_ = log;
+    stepLogSerial_ = log ? log->openStepSerial() : 0;
   }
 
   /** Mark the upcoming grab-class dab/image: false = primary (bumps the
@@ -748,6 +765,8 @@ struct GridBrushExecutor {
   /** One dab of `brushType` at `origin`/`normal`. Returns moved-vert count. */
   int applyDab(SculptBrushes brushType, float3 origin, float3 normal)
   {
+    if (!preflightRaw(brushType, origin, normal))
+      return -1;
     auto cmd = createCommand(brushType);
     brush->loadCommonProps(&brush->deviceInputCtx);
 
@@ -773,6 +792,58 @@ struct GridBrushExecutor {
     return dabMoved_.size() > 0 ? int(dabMoved_.size()) : int(dabGrids_.size());
   }
 
+  /** Checked scalar execution on a live attachment inside beginStep/endStep.
+   * The Multires owner must outlive this executor. Keep the domain, tree
+   * partition, edit target and log transaction stable through endStep. */
+  props::ScalarRegistrationResult applyResolvedDab(SculptBrushes brushType,
+                                                   float3 origin,
+                                                   float3 normal,
+                                                   bool validateOnly = false,
+                                                   bool grabAdd = false);
+
+  /** Preflight every stage and keep temporary scalar values out of authored storage. */
+  props::ScalarRegistrationResult applyResolvedProgram(BrushProgram *program,
+                                                       float3 origin,
+                                                       float3 normal,
+                                                       bool validateOnly = false,
+                                                       bool grabAdd = false);
+
+  bool preflightRaw(SculptBrushes type, float3 origin, float3 normal);
+  bool preflightRawProgram(BrushProgram *program, float3 origin, float3 normal);
+  bool supportsResolved(SculptBrushes type);
+  bool supportsResolvedProgram(BrushProgram *program);
+  bool createPreparedCommand(SculptBrushes type, brush_command &command);
+
+  props::ScalarRegistrationResult lastRegistration;
+
+  bool prepareProgramDeclarations(BrushProgram *program)
+  {
+    if (!program || !brush || !brush->props.struct_def) {
+      lastRegistration = {props::PropError::ERROR_INVALID_OWNER, "program"};
+      return false;
+    }
+    Vector<props::ScalarDeclaration> declarations;
+    Brush scratch;
+    for (const auto &entry : program->commands) {
+      if (entry.dynamicsOverrides.size() || entry.scalarOverrides.size() ||
+          entry.cavityCurveOverride.size())
+      {
+        lastRegistration = {props::PropError::ERROR_INVALID_VALUE,
+                            "typed program requires resolved execution"};
+        return false;
+      }
+      brush_command command;
+      if (!createCommandSwitch<AccumLive>(entry.type, &scratch, command)) {
+        lastRegistration = {props::PropError::ERROR_NOT_EXISTS, "kernel"};
+        return false;
+      }
+      command.appendScalarDeclarations(declarations);
+    }
+    lastRegistration = brush->props.struct_def->registerScalars(
+        {declarations.data(), declarations.size()});
+    return lastRegistration.error == props::PropError::ERROR_NONE;
+  }
+
   /** One logical dab of a composite brush program — the grids mirror of
    * CommandExecutor::execProgram. One stroke sample and one node query serve
    * every entry; the entries run in order over that shared set with their
@@ -784,8 +855,13 @@ struct GridBrushExecutor {
    * a vertex, i.e. every stage was a face stage) the touched-grid count. */
   int applyProgram(BrushProgram *prog, float3 origin, float3 normal)
   {
+    if (!preflightRawProgram(prog, origin, normal))
+      return -1;
     if (!prog || prog->commands.size() == 0) {
       return 0;
+    }
+    if (!prepareProgramDeclarations(prog)) {
+      return -1;
     }
 
     updateStrokeFrame(origin);
@@ -832,9 +908,6 @@ struct GridBrushExecutor {
       }
 
       auto cmd = createCommand(entry.type);
-      if (cmd.registerProps && brush->props.struct_def) {
-        cmd.registerProps(*brush->props.struct_def);
-      }
       brush->loadCommonProps(&brush->deviceInputCtx);
       if (cmd.loadUniformProps) {
         cmd.loadUniformProps(*brush, &brush->deviceInputCtx);
@@ -886,6 +959,12 @@ struct GridBrushExecutor {
    * and close the undo step. */
   void endStep()
   {
+    if (!stepOpen_) {
+      return;
+    }
+    const bool currentAttachment =
+        attachedMultires_ && domain == attachedDomain_ && tree == attachedTree_ &&
+        attachedMultires_->domainGeneration() == attachedGeneration_;
     auto t0 = std::chrono::steady_clock::now();
     isFirstOfStep = false;
     stats.strokes++;
@@ -899,6 +978,11 @@ struct GridBrushExecutor {
         std::span<GridAttrMirror *const>(attrMirrors_.items.data(),
                                          attrMirrors_.items.size()),
         std::span<const int>(strokeTouchedGrids_.data(), strokeTouchedGrids_.size()));
+    stepOpen_ = false;
+    // The fold retains this domain but can drop finer domains in the owner.
+    if (currentAttachment) {
+      attachedGeneration_ = attachedMultires_->domainGeneration();
+    }
     stats.writebackMs +=
         std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0)
             .count();
@@ -962,6 +1046,9 @@ struct GridBrushExecutor {
   }
 
 private:
+  props::ScalarRegistrationResult resolvedState(float3 origin, float3 normal) const;
+  bool resolvedCapability(const brush_command &command, SculptBrushes type) const;
+
   static double msSince(std::chrono::steady_clock::time_point t0)
   {
     return std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() -
@@ -973,11 +1060,15 @@ private:
    * leaves within radius `r` of `origin`. Grab-class strokes pin their first
    * dab's set (the region is fixed at stroke start — the mesh path's
    * grabFilterNodes, without the dyntopo fallback). False when empty. */
-  bool queryDabLeaves(bool grabMode, float r, float3 origin)
+  bool queryDabLeaves(bool grabMode, float r, float3 origin, bool allLeaves = false)
   {
     auto t0 = std::chrono::steady_clock::now();
     dabLeaves_.clear();
-    if (grabMode) {
+    if (allLeaves) {
+      for (int li = 0; li < int(tree->leaves.size()); li++)
+        if (tree->leaves[li].ownedVerts.size())
+          dabLeaves_.append(li);
+    } else if (grabMode) {
       if (!grabPinned_) {
         tree->query(origin, r, grabLeaves_);
         grabPinned_ = true;
@@ -1020,10 +1111,8 @@ private:
 
     if (cmd.writesMask) {
       strokeWroteMask_ = true;
-      if (isFirstOfStep) {
-        // The channel must exist before the log captures its blocks.
-        domain->ensureMaskChannel();
-      }
+      // A prior miss or non-mask dab may already have consumed first-of-step.
+      domain->ensureMaskChannel();
     } else if (!cmd.faceMode) {
       // A face stage writes cells, never positions: claiming otherwise would
       // send the fold through gridsWriteback over an empty touched-vert set.
@@ -1106,7 +1195,30 @@ private:
     ctx.viewNormal = viewNormalParamsFor(*brush);
     ctx.automaskFactor = nullptr;
     ctx.automaskEnabled = false;
-    if (brush->automask_cavity) {
+    if (preparedCavityActive && brush->automask_cavity && nodeSpan.size()) {
+      preparedCavity.beginGeometry(domain, attachedGeneration_, domain->vertCount());
+      PreparedCavityCache::Entry *entry = nullptr;
+      for (auto *node : nodeSpan) {
+        for (int v : tree->leaves[node->leaf].ownedVerts) {
+          float3 contact = domain->pos()[v];
+          if ((cmd.grabMode || (nonAccum && cmd.accumulable && !cmd.relaxesBase)) &&
+              ctx.dispVec && ctx.dispGen &&
+              ctx.dispGen->safe_get(v) == int(ctx.strokeGen))
+            contact -= ctx.dispVec->safe_get(v);
+          if (preparedCavityContact(
+                  *brush, cmd.unbounded, contact, ctx.surfacePos, ctx.surfaceNo))
+          {
+            if (!entry)
+              entry = &preparedCavity.entry(*brush);
+            preparedCavity.fill(*entry, GridCavitySrc{domain}, v);
+          } else {
+            preparedCavity.write(v, 1.0f);
+          }
+        }
+      }
+      ctx.automaskFactor = preparedCavity.active();
+      ctx.automaskEnabled = entry != nullptr;
+    } else if (brush->automask_cavity) {
       static_assert(int(Brush::kCavityCurveLutSize) == kCavityCurveSize,
                     "brush cavity_curve LUT size must match automask kCavityCurveSize");
       CavityParams cp;
@@ -1263,7 +1375,7 @@ private:
       stats.normalsMs += msSince(tn);
     }
     auto tb = std::chrono::steady_clock::now();
-    tree->refreshBounds(std::span<const int>(dabLeaves_.data(), dabLeaves_.size()));
+    tree->refreshVertexBounds(movedSpan);
     stats.boundsMs += msSince(tb);
   }
 
@@ -1404,6 +1516,14 @@ private:
     }
   }
 
+  subdiv::Multires *attachedMultires_ = nullptr;
+  subdiv::GridLevelDomain *attachedDomain_ = nullptr;
+  subdiv::GridTree *attachedTree_ = nullptr;
+  uint64_t attachedGeneration_ = 0;
+  subdiv::GridStrokeLog *stepLog_ = nullptr;
+  uint64_t stepLogSerial_ = 0;
+  bool stepOpen_ = false;
+  int stepEditTarget_ = -1, stepWritebackChannel_ = 0;
   Vector<GridExecNode> nodes_; // parallel to tree->leaves
   Vector<int> dabLeaves_;
   Vector<GridExecNode *> nodePtrs_;

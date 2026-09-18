@@ -10,7 +10,10 @@
 #include <array>
 #include <cmath>
 #include <limits>
+#include <span>
 
+#include "brush_configuration.h"
+#include "named_uniform_store.h"
 #include "props.h"
 #include "texture_program.h"
 
@@ -19,7 +22,7 @@ namespace sculptcore::brush {
 // Falloff curve shapes selectable per brush. The three analytic kinds
 // inline a closed form; `Curve` reads `Brush::falloff_curve` as a
 // 256-entry LUT with linear interpolation. `t` is the normalized 0..1
-// centerwise input — 1 at the brush center, 0 at the radius. Smoothstep
+// centerwise input â€” 1 at the brush center, 0 at the radius. Smoothstep
 // is the historical default and keeps regression dumps bit-identical
 // when no `set_falloff` runs.
 enum class FalloffKind : unsigned char {
@@ -33,10 +36,10 @@ enum class FalloffKind : unsigned char {
 // normalized 0..1 distance fed into the falloff curve. This is the DSL
 // plan's `Falloff` tagged-union discriminant, orthogonal to the curve
 // shape (`FalloffKind`):
-//   Spherical — euclidean radius (historical default, bit-identical).
-//   Cube      — max(|dx|,|dy|,|dz|), the legacy SQUARE-brush metric.
-//   Linear    — distance projected onto `falloff_dir` (stroke-line falloff).
-//   Box       — oriented cuboid: max-norm in an orthonormal frame built from
+//   Spherical â€” euclidean radius (historical default, bit-identical).
+//   Cube      â€” max(|dx|,|dy|,|dz|), the legacy SQUARE-brush metric.
+//   Linear    â€” distance projected onto `falloff_dir` (stroke-line falloff).
+//   Box       â€” oriented cuboid: max-norm in an orthonormal frame built from
 //               `falloff_dir` (primary axis = stroke direction), with
 //               independent per-axis half-extents in `falloff_extent`.
 enum class FalloffShape : unsigned char {
@@ -64,13 +67,13 @@ using litestl::util::StrLiteral;
 // Mapping from a world-space sample point to brush-texture UV. Orthogonal
 // to the texture data itself; the discriminant rides in BrushUniforms so
 // the WGSL `brush_sample_tex` mirrors the same branches.
-//   Global     — uv = co.xy (world plane; stroke-independent, the test mode).
-//   ViewPlane  — perspective-project co through renderMatrix (world -> clip),
+//   Global     â€” uv = co.xy (world plane; stroke-independent, the test mode).
+//   ViewPlane  â€” perspective-project co through renderMatrix (world -> clip),
 //                NDC remapped to [0,1] across the viewport (screen-pinned).
-//   ViewRepeat — ViewPlane scaled by `tex_repeat` (tiled across the view).
-//   StrokeCurved — uv = (arc length along the stroke, lateral offset from it);
+//   ViewRepeat â€” ViewPlane scaled by `tex_repeat` (tiled across the view).
+//   StrokeCurved â€” uv = (arc length along the stroke, lateral offset from it);
 //                  reads the StrokePath ring buffer of recent dab centers.
-//   Projected  — project (co - surfacePos) onto the brush-center tangent plane;
+//   Projected  â€” project (co - surfacePos) onto the brush-center tangent plane;
 //                uv = its coordinates in a deterministic orthonormal basis built
 //                from surfaceNo, normalized so the tile spans the brush circle
 //                (centered on the dab, 0..1 across the diameter). The one mode
@@ -110,16 +113,16 @@ struct StrokeSample {
 // length bound by the (future) dispatcher.
 inline constexpr int kStrokePathMax = 64;
 
-// View-normal automask defaults (radians): fade to nothing at 90° off head-on,
-// over a 25° ramp — so full strength holds until 65°. Live here rather than in
+// View-normal automask defaults (radians): fade to nothing at 90Â° off head-on,
+// over a 25Â° ramp â€” so full strength holds until 65Â°. Live here rather than in
 // automask.h so brush.h needn't pull mesh.h in; automask.h reads them back.
 inline constexpr float kViewNormalLimitDefault = 1.5707964f;
 inline constexpr float kViewNormalFalloffDefault = 0.43633232f;
 
-// Stable small ids for the float props the bridge configures across the TS
+// Stable small ids for the common scalar props the bridge configures across the TS
 // boundary. Used instead of `util::string` prop-name args: the TS binding
 // runtime can't marshal a JS string into a bound `util::string` parameter
-// (no String copy-ctor / cstring path — it expects a pre-built String handle).
+// (no String copy-ctor / cstring path â€” it expects a pre-built String handle).
 // The C++ side maps the id back to the prop name (string literals never cross
 // the boundary). Mirror in sculptcore_bindings.ts (`BrushProp`).
 enum class BrushProp : int {
@@ -128,6 +131,7 @@ enum class BrushProp : int {
   Autosmooth = 2,
   Planeoff = 3,
   Spacing = 4,
+  Invert = 5,
 };
 inline const char *brushPropName(int propId)
 {
@@ -142,8 +146,41 @@ inline const char *brushPropName(int propId)
     return "planeoff";
   case 4:
     return "spacing";
+  case 5:
+    return "invert";
   default:
     return "";
+  }
+}
+
+struct Brush;
+struct BrushMemberDescriptor {
+  const char *name;
+  props::Prop type;
+  bool dynamic;
+  props::Prop arrayElement = props::Prop::INVALID_TYPE;
+  int arraySize = 0;
+  void *(*address)(Brush &) = nullptr;
+};
+
+template <typename T> constexpr props::Prop brushMemberType()
+{
+  if constexpr (std::is_same_v<T, float>) {
+    return props::Prop::FLOAT32;
+  } else if constexpr (std::is_same_v<T, int>) {
+    return props::Prop::INT32;
+  } else if constexpr (std::is_same_v<T, bool>) {
+    return props::Prop::BOOL;
+  } else if constexpr (std::is_same_v<T, litestl::math::float2>) {
+    return props::Prop::VEC2F;
+  } else if constexpr (std::is_same_v<T, float3>) {
+    return props::Prop::VEC3F;
+  } else if constexpr (std::is_same_v<T, float4>) {
+    return props::Prop::VEC4F;
+  } else if constexpr (std::is_array_v<T>) {
+    return props::Prop::ARRAYBUFFER;
+  } else {
+    return props::Prop::INVALID_TYPE;
   }
 }
 
@@ -156,14 +193,14 @@ struct Brush {
   /* Fraction of the brush *diameter* between successive dabs along a stroke,
    * i.e. BrushStrokeDriver walks `spacing * 2 * radius` per dab. */
   float spacing = 0.25f;
-  /* Plane-brush offset along surfaceNo as a fraction of radius — places the
+  /* Plane-brush offset along surfaceNo as a fraction of radius â€” places the
    * projection plane above/below the stroke surface point for the clay-family
    * (plane) kernels. Unused by the non-plane brushes. */
   float planeoff = 0.0f;
   /* Autosmooth amount. Synced from the TS brush for prop parity / inheritance,
    * but not read C++-side yet: the chained SMOOTH command is built bridge-side
    * (buildBrushProgram reads the TS value and emits a SMOOTH BrushProgram entry
-   * — see brush_executor.h). 0 disables the chained smooth. */
+   * â€” see brush_executor.h). 0 disables the chained smooth. */
   float autosmooth = 0.0f;
   /* Plane-brush active side: +1 pulls verts below the projection plane up onto
    * it (clay / fill), -1 pulls verts above it down onto it (scrape). Set per
@@ -176,23 +213,23 @@ struct Brush {
   // `FalloffShape::Box` (expected normalized). Unused by the other shapes.
   // Default +Z keeps the value well-defined.
   float3 falloff_dir{0, 0, 1};
-  // Per-axis half-extents (×radius) for `FalloffShape::Box`, in the oriented
+  // Per-axis half-extents (Ã—radius) for `FalloffShape::Box`, in the oriented
   // frame built from `falloff_dir` (extent[0] is along the stroke direction).
   // {1,1,1} makes Box an oriented cube. Unused by the other shapes.
   float3 falloff_extent{1, 1, 1};
 
-  // Stroke tangent (current dab origin − previous dab center), set host-side by
+  // Stroke tangent (current dab origin âˆ’ previous dab center), set host-side by
   // the executor each dab. Drives wing-scrape wing orientation and can feed the
   // oriented Box falloff via `falloff_dir`. Default +Z keeps it well-defined.
   float3 strokeDir{0, 0, 1};
 
   // When true, the host set `strokeDir` for this dab, so the executor must not
-  // re-derive it from the shared stroke-path ring buffer — mirror-image dabs
+  // re-derive it from the shared stroke-path ring buffer â€” mirror-image dabs
   // supply their own reflected tangent. Reset per dab by the caller.
   bool strokeDirHostSet = false;
 
   // Wing-scrape: half-angle (radians) of each wing plane off the surface, plus
-  // the two wing-plane normals (surfaceNo rotated ±wingAngle about strokeDir),
+  // the two wing-plane normals (surfaceNo rotated Â±wingAngle about strokeDir),
   // recomputed per dab by the wingscrape kernel's host stage.
   float wingAngle = 0.3f;
   float3 wingNormalA{0, 0, 1};
@@ -241,7 +278,7 @@ struct Brush {
   StrokeSample strokePath[kStrokePathMax];
   int strokePathCount = 0;
 
-  // Kelvinlet brush uniforms — Lamé-style material constants. Live on Brush
+  // Kelvinlet brush uniforms â€” LamÃ©-style material constants. Live on Brush
   // (rather than only on CommandCtx) because they're authored alongside
   // strength/radius. Defaults match the kelvinlet paper's "soft rubber".
   float mu = 1.0f;
@@ -250,7 +287,7 @@ struct Brush {
   // Cutoff radius of an `@unbounded` brush field, as a multiple of `radius`.
   // The kernel's `unbounded_window()` smoothsteps the field to exactly zero
   // over [0.8R, R] with R = radius * unboundedExtent, and the host sizes the
-  // spatial-node filter radius from the same R — that pairing is what keeps a
+  // spatial-node filter radius from the same R â€” that pairing is what keeps a
   // field with unbounded support from tearing on a leaf boundary. Read by TS
   // (sculptcore_ops) so the constant lives in exactly one place.
   float unboundedExtent = 8.0f;
@@ -276,7 +313,7 @@ struct Brush {
 
   // Cavity automasking (documentation/plans/2026-07-14-2007-cavity-automasking.md):
   // a per-vertex, per-stroke local-convexity factor multiplied into the effective
-  // strength — distinct from the painted `mask`. Computed host-side (see
+  // strength â€” distinct from the painted `mask`. Computed host-side (see
   // automask.h); `cavity_factor` scales it, `cavity_blur_steps` sets the BFS blur
   // radius, `cavity_inverted` masks concavities instead of convexities.
   bool automask_cavity = false;
@@ -289,7 +326,7 @@ struct Brush {
   // a dab otherwise tears the silhouette. `view_normal_limit` / `_falloff` are
   // radians (see automask.h ViewNormalParams); `cull_backfaces` also zeroes
   // away-facing geometry. Defaults off in the engine so existing headless
-  // scenes — which never set `viewDir` — are unchanged; the app turns it on.
+  // scenes â€” which never set `viewDir` â€” are unchanged; the app turns it on.
   bool automask_view_normal = false;
   bool cull_backfaces = false;
   float view_normal_limit = kViewNormalLimitDefault;
@@ -301,7 +338,7 @@ struct Brush {
 
   // Enhance-details brush (source/brush/enhance.h): `enhance_rings` is the outer
   // smoothing depth (low-pass cutoff / feature scale); `enhance_inner` is the
-  // inner depth — 0 = classic unsharp (high-pass), >=1 = difference-of-smooths
+  // inner depth â€” 0 = classic unsharp (high-pass), >=1 = difference-of-smooths
   // band-pass (default, rejects mesh noise).
   int enhance_rings = 4;
   int enhance_inner = 1;
@@ -313,7 +350,7 @@ struct Brush {
 
   // Pose-brush cage. `poseCageRest` is sampled when the dab starts; the DSL
   // displaces each vertex by a weighted sum of `poseCageNow[i] - poseCageRest[i]`
-  // with weights = 1 / (1 + |v.co - poseCageRest[i]|²). Four anchors is the
+  // with weights = 1 / (1 + |v.co - poseCageRest[i]|Â²). Four anchors is the
   // tightest fit that still gives a smooth pose without needing a loop in
   // the DSL (Wave 4b has no `for`).
   float3 poseCageRest[4] = {};
@@ -337,6 +374,9 @@ struct Brush {
   {
     falloff_curve[i] = f;
   }
+
+  bool replaceFalloffCurveChecked(util::Vector<float> &samples);
+  bool replaceCavityCurveChecked(util::Vector<float> &samples);
 
   // Cavity-automask curve LUT (size must equal automask.h kCavityCurveSize = 256;
   // a static_assert in the executor pins the two together). Reshapes the linear
@@ -362,46 +402,135 @@ struct Brush {
     }
   }
 
-  // Name-keyed float store for extra (out-of-repo) kernel uniforms that have
-  // no Brush member. Slots are per-build, assigned by the extras registry
-  // (kExtraSlot_<name> in sculptcore_extra_brushes.gen.h); kernels read
-  // namedFloats[slot] directly. ensureExtraUniformDefaults (generated) seeds
-  // DSL defaults for the tail it grows — setNamedFloat never re-defaults.
-  litestl::util::Vector<float> namedFloats;
+  NamedUniformStore<float> namedFloats;
+  NamedUniformStore<int32_t> namedInts;
+  NamedUniformStore<bool> namedBools;
 
-  void setNamedFloat(int slot, float v)
-  {
-    if (slot < 0) {
-      return;
-    }
-    while ((int)namedFloats.size() <= slot) {
-      namedFloats.append(0.0f);
-    }
-    namedFloats[slot] = v;
-  }
+  props::PropError setNamedScalar(props::Prop type, int slot, double value);
+  void setNamedFloat(int slot, float value);
+  void setNamedInt(int slot, int32_t value);
+  void setNamedBool(int slot, bool value);
   float getNamedFloat(int slot)
   {
-    return (slot >= 0 && slot < (int)namedFloats.size()) ? namedFloats[slot] : 0.0f;
+    return namedFloats.get(slot);
+  }
+  int32_t getNamedInt(int slot)
+  {
+    return namedInts.get(slot);
+  }
+  bool getNamedBool(int slot)
+  {
+    return namedBools.get(slot);
   }
 
-  /** The uniform/ctx names that lower to Brush *members* (`ctx.brush.<name>`).
-   * sbrushc calls this at generation time: listed names take the member path;
-   * for extra kernels an unlisted float uniform takes a namedFloats slot, and
-   * for built-in kernels it is a codegen error — which keeps this list honest,
-   * since every member a built-in kernel reads must appear here to compile. */
+  /** Generated defaults and evaluated writes never change authored properties. */
+  void ensureNamedFloatDefault(int slot, float value)
+  {
+    if (slot >= 0 && slot < kNamedUniformSlotLimit) {
+      namedFloats.ensure(slot, value);
+    }
+  }
+  void ensureNamedIntDefault(int slot, int32_t value)
+  {
+    if (slot >= 0 && slot < kNamedUniformSlotLimit) {
+      namedInts.ensure(slot, value);
+    }
+  }
+  void ensureNamedBoolDefault(int slot, bool value)
+  {
+    if (slot >= 0 && slot < kNamedUniformSlotLimit) {
+      namedBools.ensure(slot, value);
+    }
+  }
+  void setEvaluatedNamedFloat(int slot, float value)
+  {
+    if (slot >= 0 && slot < kNamedUniformSlotLimit) {
+      namedFloats.set(slot, value);
+    }
+  }
+  void setEvaluatedNamedInt(int slot, int32_t value)
+  {
+    if (slot >= 0 && slot < kNamedUniformSlotLimit) {
+      namedInts.set(slot, value);
+    }
+  }
+  void setEvaluatedNamedBool(int slot, bool value)
+  {
+    if (slot >= 0 && slot < kNamedUniformSlotLimit) {
+      namedBools.set(slot, value);
+    }
+  }
+
+  /** Describe native member storage and semantic dynamics eligibility. */
+  static std::span<const BrushMemberDescriptor> builtinPropDescriptorSpan()
+  {
+#define BRUSH_MEMBER(member, eligible)                                                   \
+  [] {                                                                                   \
+    static_assert(brushMemberType<decltype(member)>() != props::Prop::INVALID_TYPE);     \
+    return BrushMemberDescriptor{                                                        \
+        #member,                                                                         \
+        brushMemberType<decltype(member)>(),                                             \
+        eligible,                                                                        \
+        std::is_array_v<decltype(member)>                                                \
+            ? brushMemberType<std::remove_extent_t<decltype(member)>>()                  \
+            : props::Prop::INVALID_TYPE,                                                 \
+        int(std::extent_v<decltype(member)>),                                            \
+        [](Brush &brush) -> void * { return &brush.member; }};                           \
+  }()
+    static const BrushMemberDescriptor members[] = {
+        BRUSH_MEMBER(strength, true),
+        BRUSH_MEMBER(radius, true),
+        BRUSH_MEMBER(spacing, true),
+        BRUSH_MEMBER(planeoff, true),
+        BRUSH_MEMBER(planeSide, false),
+        BRUSH_MEMBER(autosmooth, true),
+        BRUSH_MEMBER(invert, true),
+        BRUSH_MEMBER(strokeDir, false),
+        BRUSH_MEMBER(wingAngle, true),
+        BRUSH_MEMBER(wingNormalA, false),
+        BRUSH_MEMBER(wingNormalB, false),
+        BRUSH_MEMBER(activeGroup, false),
+        BRUSH_MEMBER(brushColor, false),
+        BRUSH_MEMBER(mixMode, false),
+        BRUSH_MEMBER(mu, true),
+        BRUSH_MEMBER(nu, true),
+        BRUSH_MEMBER(unboundedExtent, true),
+        BRUSH_MEMBER(pinch, true),
+        BRUSH_MEMBER(projection, true),
+        BRUSH_MEMBER(rake, true),
+        BRUSH_MEMBER(grabFrom, false),
+        BRUSH_MEMBER(grabTo, false),
+        BRUSH_MEMBER(poseCageRest, false),
+        BRUSH_MEMBER(poseCageNow, false),
+        BRUSH_MEMBER(automask_cavity, false),
+        BRUSH_MEMBER(cavity_factor, false),
+        BRUSH_MEMBER(cavity_blur_steps, false),
+        BRUSH_MEMBER(cavity_inverted, false),
+        BRUSH_MEMBER(cavity_use_curve, false),
+        BRUSH_MEMBER(automask_view_normal, false),
+        BRUSH_MEMBER(cull_backfaces, false),
+        BRUSH_MEMBER(view_normal_limit, false),
+        BRUSH_MEMBER(view_normal_falloff, false),
+        BRUSH_MEMBER(enhance_rings, false),
+        BRUSH_MEMBER(enhance_inner, false),
+    };
+#undef BRUSH_MEMBER
+    return {members, sizeof(members) / sizeof(members[0])};
+  }
+
+  static void builtinPropDescriptors(litestl::util::Vector<BrushMemberDescriptor> &out)
+  {
+    for (const auto &member : builtinPropDescriptorSpan()) {
+      out.append(member);
+    }
+  }
+
   static void builtinPropNames(litestl::util::Vector<litestl::util::string> &out)
   {
-    for (const char *n :
-         {
-             "strength",        "radius",      "spacing",      "planeoff",
-             "planeSide",       "autosmooth",  "invert",       "strokeDir",
-             "wingAngle",       "wingNormalA", "wingNormalB",  "activeGroup",
-             "brushColor",      "mixMode",     "mu",           "nu",
-             "unboundedExtent", "pinch",       "projection",   "rake",
-             "grabFrom",        "grabTo",      "poseCageRest", "poseCageNow",
-         })
-    {
-      out.append(litestl::util::string(n));
+    litestl::util::Vector<BrushMemberDescriptor> descriptors;
+    builtinPropDescriptors(descriptors);
+    for (const auto &descriptor : descriptors) {
+      out.append(litestl::util::string(descriptor.name));
     }
   }
 
@@ -464,6 +593,8 @@ struct Brush {
     BIND_STRUCT_METHOD(st, getNamedFloat, MARGS("slot"));
     BIND_STRUCT_METHOD(st, setFalloffCurveEntry, MARGS("i", "f"));
     BIND_STRUCT_METHOD(st, setCavityCurveEntry, MARGS("i", "f"));
+    BIND_STRUCT_METHOD(st, replaceFalloffCurveChecked, MARGS("samples"));
+    BIND_STRUCT_METHOD(st, replaceCavityCurveChecked, MARGS("samples"));
     BIND_STRUCT_METHOD(st, setTexture, MARGS("width", "height", "pixels"));
     BIND_STRUCT_METHOD(st, clearTexture, MARGS());
     BIND_STRUCT_MEMBER(st, texture_script_error);
@@ -477,6 +608,7 @@ struct Brush {
     BIND_STRUCT_METHOD(st, textureUsesMap, MARGS());
     BIND_STRUCT_METHOD(st, loadProps, MARGS());
     BIND_STRUCT_METHOD(st, writeProps, MARGS());
+    BIND_STRUCT_METHOD(st, writeDabProps, MARGS());
     BIND_STRUCT_METHOD(st, pushDeviceInput, MARGS("type", "value"));
     BIND_STRUCT_METHOD(st, clearDeviceInputs, MARGS());
     BIND_STRUCT_METHOD(st, clearPropDynamics, MARGS("propId"));
@@ -494,6 +626,49 @@ struct Brush {
         st, setPropDynamicSampleByName, MARGS("name", "deviceType", "i", "n", "value"));
     BIND_STRUCT_METHOD(st, setPropsParent, MARGS("parentProps"));
     BIND_STRUCT_METHOD(st, clearPropsParent, MARGS());
+    BIND_STRUCT_METHOD(st,
+                       replaceCommonResponseDynamicsChecked,
+                       MARGS("propId",
+                             "scalarType",
+                             "devices",
+                             "modes",
+                             "factors",
+                             "enabled",
+                             "offsets",
+                             "samples",
+                             "kinds",
+                             "parameters"));
+    BIND_STRUCT_METHOD(st, configurationGeneration, MARGS());
+    BIND_STRUCT_METHOD(
+        st, readCommonScalarChecked, MARGS("propId", "scalarType", "evaluate"));
+    BIND_STRUCT_METHOD(
+        st, writeCommonScalarChecked, MARGS("propId", "scalarType", "value"));
+    BIND_STRUCT_METHOD(st,
+                       configureCommonDynamicChecked,
+                       MARGS("propId", "scalarType", "device", "mode", "factor"));
+    BIND_STRUCT_METHOD(st,
+                       enableCommonDynamicChecked,
+                       MARGS("propId", "scalarType", "device", "enabled"));
+    BIND_STRUCT_METHOD(
+        st, moveCommonDynamicChecked, MARGS("propId", "scalarType", "device", "index"));
+    BIND_STRUCT_METHOD(st, clearCommonDynamicsChecked, MARGS("propId", "scalarType"));
+    BIND_STRUCT_METHOD(st,
+                       replaceCommonDynamicTableChecked,
+                       MARGS("propId", "scalarType", "device", "samples"));
+    BIND_STRUCT_METHOD(
+        st,
+        setCommonDynamicSampleChecked,
+        MARGS("propId", "scalarType", "device", "index", "count", "value"));
+    BIND_STRUCT_METHOD(st,
+                       replaceCommonDynamicsChecked,
+                       MARGS("propId",
+                             "scalarType",
+                             "devices",
+                             "modes",
+                             "factors",
+                             "enabled",
+                             "offsets",
+                             "samples"));
 
     return st;
   }
@@ -502,7 +677,7 @@ struct Brush {
   // Link this brush's props to a parent default (e.g. a category-default
   // Brush's `props`) so any property this brush does not define locally
   // resolves from the parent. Takes the parent's `StructProp` (not a `Brush*`)
-  // so `Brush::defineBindings` never references its own type — a self-reference
+  // so `Brush::defineBindings` never references its own type â€” a self-reference
   // would re-enter defineBindings infinitely at init.
   void setPropsParent(props::StructProp *parentProps)
   {
@@ -521,9 +696,8 @@ struct Brush {
   // The bridge configures a property's dynamics once per stroke, then pushes
   // device samples each dab; loadProps() applies them via the prop's Dynamics.
 
-  // Resolve a float property's device-dynamics stack by name, or null. This is
-  // the name-keyed core; any registered float uniform (common or per-kernel) is
-  // reachable, not just the 5 `BrushProp` ids.
+  // Raw native inspection, including unsupported legacy FLOAT64 stacks.
+  // Configuration uses checked local ownership and eligibility separately.
   props::Dynamics *propDynamics(util::string name)
   {
     if (!props.struct_def) {
@@ -536,6 +710,12 @@ struct Brush {
     props::detail::PropBaseType *base = static_cast<props::detail::PropBaseType *>(p);
     if (p->type == props::Prop::FLOAT32) {
       return &static_cast<props::Float32Prop *>(base)->dynamics;
+    }
+    if (p->type == props::Prop::INT32) {
+      return &static_cast<props::Int32Prop *>(base)->dynamics;
+    }
+    if (p->type == props::Prop::BOOL) {
+      return &static_cast<props::BoolProp *>(base)->dynamics;
     }
     if (p->type == props::Prop::FLOAT64) {
       return &static_cast<props::Float64Prop *>(base)->dynamics;
@@ -559,50 +739,12 @@ struct Brush {
     deviceInputCtx.clear();
   }
 
-  // Drop all device layers from a property's dynamics (reconfigure per stroke).
-  void clearPropDynamicsByName(util::string name)
-  {
-    props::Dynamics *dyn = propDynamics(name);
-    if (dyn) {
-      dyn->devices.clear();
-    }
-  }
-  // Add a device layer (identity curve) to a property; fill its response curve
-  // with setPropDynamicSampleByName.
+  // Legacy signatures delegate to the checked configuration boundary.
+  void clearPropDynamicsByName(util::string name);
   void
-  addPropDynamicByName(util::string name, int deviceType, int mixMode, float mixFactor)
-  {
-    props::Dynamics *dyn = propDynamics(name);
-    if (!dyn) {
-      return;
-    }
-    props::DynamicDevice dev;
-    dev.type = static_cast<props::DeviceType>(deviceType);
-    dev.mixMode = static_cast<litestl::math::BasicMix>(mixMode);
-    dev.mixFactor = mixFactor;
-    dyn->devices.append(std::move(dev));
-  }
-  // Set sample `i` of an `n`-entry response curve for the (name, deviceType)
-  // device layer — the baked form of the TS channel's Curve1D.
-  void
-  setPropDynamicSampleByName(util::string name, int deviceType, int i, int n, float value)
-  {
-    props::Dynamics *dyn = propDynamics(name);
-    if (!dyn) {
-      return;
-    }
-    for (auto &dev : dyn->devices) {
-      if ((int)dev.type == deviceType) {
-        if (n > 0 && int(dev.curveTable.size()) != n) {
-          dev.curveTable.resize(n);
-        }
-        if (i >= 0 && i < int(dev.curveTable.size())) {
-          dev.curveTable[i] = value;
-        }
-        return;
-      }
-    }
-  }
+  addPropDynamicByName(util::string name, int deviceType, int mixMode, float mixFactor);
+  void setPropDynamicSampleByName(
+      util::string name, int deviceType, int i, int n, float value);
 
   // Int-keyed wrappers for the bridge's fixed common props (BrushProp ids).
   void clearPropDynamics(int propId)
@@ -618,6 +760,133 @@ struct Brush {
     setPropDynamicSampleByName(brushPropName(propId), deviceType, i, n, value);
   }
 
+  BrushScalarResult readCommonScalarChecked(int propId, int scalarType, bool evaluate)
+  {
+    return readScalarChecked(brushPropName(propId), scalarType, evaluate);
+  }
+
+  int writeCommonScalarChecked(int propId, int scalarType, double value)
+  {
+    return writeScalarChecked(brushPropName(propId), scalarType, value);
+  }
+
+  int configureCommonDynamicChecked(
+      int propId, int scalarType, int device, int mode, float factor)
+  {
+    return configureDynamicChecked(
+        brushPropName(propId), scalarType, device, mode, factor);
+  }
+
+  int enableCommonDynamicChecked(int propId, int scalarType, int device, int enabled)
+  {
+    return enableDynamicChecked(brushPropName(propId), scalarType, device, enabled);
+  }
+
+  int moveCommonDynamicChecked(int propId, int scalarType, int device, int index)
+  {
+    return moveDynamicChecked(brushPropName(propId), scalarType, device, index);
+  }
+
+  int clearCommonDynamicsChecked(int propId, int scalarType)
+  {
+    return clearDynamicsChecked(brushPropName(propId), scalarType);
+  }
+
+  // Reflection requires non-const vector references. These wrappers only read
+  // caller arrays; the native configuration implementation accepts const refs.
+  int replaceCommonDynamicTableChecked(int propId,
+                                       int scalarType,
+                                       int device,
+                                       util::Vector<float> &samples)
+  {
+    return replaceDynamicTableChecked(brushPropName(propId), scalarType, device, samples);
+  }
+
+  int setCommonDynamicSampleChecked(
+      int propId, int scalarType, int device, int index, int count, float value)
+  {
+    return setDynamicSampleChecked(
+        brushPropName(propId), scalarType, device, index, count, value);
+  }
+
+  int replaceCommonDynamicsChecked(int propId,
+                                   int scalarType,
+                                   util::Vector<int> &devices,
+                                   util::Vector<int> &modes,
+                                   util::Vector<float> &factors,
+                                   util::Vector<int> &enabled,
+                                   util::Vector<int> &offsets,
+                                   util::Vector<float> &samples)
+  {
+    return replaceDynamicsChecked(brushPropName(propId),
+                                  scalarType,
+                                  devices,
+                                  modes,
+                                  factors,
+                                  enabled,
+                                  offsets,
+                                  samples);
+  }
+
+  int replaceCommonResponseDynamicsChecked(int propId,
+                                           int scalarType,
+                                           util::Vector<int> &devices,
+                                           util::Vector<int> &modes,
+                                           util::Vector<float> &factors,
+                                           util::Vector<int> &enabled,
+                                           util::Vector<int> &offsets,
+                                           util::Vector<float> &samples,
+                                           util::Vector<int> &kinds,
+                                           util::Vector<double> &parameters)
+  {
+    return replaceResponseDynamicsChecked(brushPropName(propId),
+                                          scalarType,
+                                          devices,
+                                          modes,
+                                          factors,
+                                          enabled,
+                                          offsets,
+                                          samples,
+                                          kinds,
+                                          parameters);
+  }
+
+  BrushScalarResult readScalarChecked(util::string name, int scalarType, bool evaluate);
+  int writeScalarChecked(util::string name, int scalarType, double value);
+  int configureDynamicChecked(
+      util::string name, int scalarType, int device, int mode, float factor);
+  int enableDynamicChecked(util::string name, int scalarType, int device, int enabled);
+  int moveDynamicChecked(util::string name, int scalarType, int device, int index);
+  int clearDynamicsChecked(util::string name, int scalarType);
+  int replaceDynamicTableChecked(util::string name,
+                                 int scalarType,
+                                 int device,
+                                 const util::Vector<float> &samples);
+  int setDynamicSampleChecked(
+      util::string name, int scalarType, int device, int index, int count, float value);
+  int replaceDynamicsChecked(util::string name,
+                             int scalarType,
+                             const util::Vector<int> &devices,
+                             const util::Vector<int> &modes,
+                             const util::Vector<float> &factors,
+                             const util::Vector<int> &enabled,
+                             const util::Vector<int> &offsets,
+                             const util::Vector<float> &samples);
+  int replaceResponseDynamicsChecked(util::string name,
+                                     int scalarType,
+                                     const util::Vector<int> &devices,
+                                     const util::Vector<int> &modes,
+                                     const util::Vector<float> &factors,
+                                     const util::Vector<int> &enabled,
+                                     const util::Vector<int> &offsets,
+                                     const util::Vector<float> &samples,
+                                     const util::Vector<int> &kinds,
+                                     const util::Vector<double> &parameters);
+  uint64_t configurationGeneration() const
+  {
+    return configurationGeneration_;
+  }
+
   Brush() : props(&structDef_)
   {
     structDef_.Float32("strength", "strength");
@@ -627,7 +896,7 @@ struct Brush {
     structDef_.Float32("autosmooth", "autosmooth");
     structDef_.Bool("invert", "invert");
     // Per-kernel scalar uniforms (mu/nu/...) are registered on demand by the
-    // active brush's generated registerProps — see sbrush-dynamic-uniforms.
+    // active brush's generated registerProps â€” see sbrush-dynamic-uniforms.
   }
 
   ~Brush()
@@ -639,7 +908,7 @@ struct Brush {
   // kernels read. The no-arg form applies this brush's device-dynamics stack
   // (`deviceInputCtx`); with no devices configured / no inputs pushed it is a
   // bit-identical no-op, so it is safe to always route through it. Loads only
-  // the fixed common props — the active kernel's scalar uniforms are resolved
+  // the fixed common props â€” the active kernel's scalar uniforms are resolved
   // by its generated loadUniformProps (see sbrush-dynamic-uniforms plan).
   void loadProps()
   {
@@ -653,7 +922,7 @@ struct Brush {
     spacing = props.lookupValue<float>("spacing", 0.25, ctx);
     planeoff = props.lookupValue<float>("planeoff", 0.0, ctx);
     autosmooth = props.lookupValue<float>("autosmooth", 0.0, ctx);
-    invert = props.lookupValue<bool>("invert", false);
+    invert = props.lookupValue<bool>("invert", false, ctx);
   }
 
   void writeProps()
@@ -663,6 +932,15 @@ struct Brush {
     props.setValue<float>("spacing", spacing);
     props.setValue<float>("planeoff", planeoff);
     props.setValue<float>("autosmooth", autosmooth);
+    props.setValue<bool>("invert", invert);
+  }
+
+  /** Publish only values authored by a dab driver; other fields may already be evaluated.
+   */
+  void writeDabProps()
+  {
+    props.setValue<float>("strength", strength);
+    props.setValue<float>("radius", radius);
     props.setValue<bool>("invert", invert);
   }
 
@@ -720,7 +998,7 @@ struct Brush {
   // WGSL emitter mirrors the same branches in `brush_falloff`.
   // The Gaussian width (9 in the exponent) hits exp(-9) ~= 1.2e-4 at
   // the edge, so no hard cutoff is needed. The Curve branch does
-  // clamped linear interpolation over `falloff_curve` — N-1 segments,
+  // clamped linear interpolation over `falloff_curve` â€” N-1 segments,
   // index N-1 read directly when t lands exactly at 1.
   float falloffEval(float t) const
   {
@@ -808,7 +1086,7 @@ struct Brush {
   /** Compile `source` as a texture script and bind the program (replacing any
    * prior one). On failure the brush is left with no program and the message
    * lands in `texture_script_error`. `@const` params are frozen into the
-   * compiled code — to change one, edit the source and rebind (milliseconds
+   * compiled code â€” to change one, edit the source and rebind (milliseconds
    * under tcc); the param setters below refuse them. */
   bool setTextureScriptSource(litestl::util::stringref source,
                               litestl::util::stringref filename)
@@ -827,7 +1105,7 @@ struct Brush {
 
   // Marshal-safe wrapper: the binding runtime can't pass a host string into a
   // util::string arg (see BrushProp), so script source crosses as a char
-  // Vector. NUL-terminated locally — stringref has no (ptr, size) ctor.
+  // Vector. NUL-terminated locally â€” stringref has no (ptr, size) ctor.
   bool setTextureScript(litestl::util::Vector<char> &source)
   {
     litestl::util::Vector<char> buf;
@@ -877,7 +1155,7 @@ struct Brush {
     return true;
   }
 
-  // Overwrite a ramp param's LUT — exactly kTexRampSize samples.
+  // Overwrite a ramp param's LUT â€” exactly kTexRampSize samples.
   bool setTextureRampAt(int i, litestl::util::Vector<float> &lut)
   {
     TextureProgramParam *p = queriedTextureParamEntry(i);
@@ -894,7 +1172,7 @@ struct Brush {
    *
    * Returns 0 with no program bound. The map context is null, so a program
    * whose `usesMap` is set sees `mapPoint()` as identity rather than a real
-   * render matrix — check `textureUsesMap()` and drive such a program through
+   * render matrix â€” check `textureUsesMap()` and drive such a program through
    * a stroke instead.
    */
   float evalTextureAt(float px, float py, float pz, float nx, float ny, float nz)
@@ -913,7 +1191,7 @@ struct Brush {
     return texture_program ? texture_program->usesMap : false;
   }
 
-  // C++-side convenience (unbound — strings can't cross the boundary).
+  // C++-side convenience (unbound â€” strings can't cross the boundary).
   int textureParamIndex(const char *name)
   {
     for (int i = 0; i < textureParamCount(); i++) {
@@ -924,7 +1202,7 @@ struct Brush {
     return -1;
   }
 
-  // Drop all recorded stroke samples — called at the start of each stroke so
+  // Drop all recorded stroke samples â€” called at the start of each stroke so
   // STROKE_CURVED arc lengths are measured from the stroke's first dab.
   void resetStrokePath()
   {
@@ -987,7 +1265,7 @@ struct Brush {
   }
 
   // Overwrite `falloff_curve` with a named preset. `inverse` flips the
-  // smoothstep shape (full strength at the edge, zero at the center) —
+  // smoothstep shape (full strength at the edge, zero at the center) â€”
   // useful for verifying the LUT actually drives the kernel rather
   // than being shadowed by the analytic dispatch.
   enum class CurvePreset { Smoothstep, Linear, Inverse, Gaussian };
@@ -1003,7 +1281,7 @@ struct Brush {
   // Construct the authoring `CurveGen` for a named preset, then rebake.
   // Inverse maps to a reverse-linear b-spline (1-t); Gaussian maps to a
   // centered-bump `CurveGenGuassian` parameterized to match the brush's
-  // analytic edge gaussian exp(-9(1-t)^2) (offset=1, 1/(2σ²)=9).
+  // analytic edge gaussian exp(-9(1-t)^2) (offset=1, 1/(2ÏƒÂ²)=9).
   void setFalloffCurvePreset(CurvePreset p)
   {
     using namespace props::detail::curve;
@@ -1035,6 +1313,19 @@ struct Brush {
   }
 
 private:
+  props::PropError
+  accessStaticScalar(props::Property *property, double &value, bool write, bool &handled);
+  uint64_t configurationGeneration_ = 0;
+  props::PropError checkedScalarTarget(util::string name,
+                                       int scalarType,
+                                       bool writable,
+                                       bool dynamic,
+                                       props::Property *&property);
+  props::PropError checkedDynamicsTarget(util::string name,
+                                         int scalarType,
+                                         bool repair,
+                                         props::Dynamics *&dynamics);
+  int commitDynamics(props::Dynamics &target, const props::Dynamics &candidate);
   props::StructDef structDef_;
 };
 } // namespace sculptcore::brush

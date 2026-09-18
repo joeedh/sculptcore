@@ -77,9 +77,9 @@ static void createTexdrawBrush(BrushCommandDef<CommandCtx<TYPES>> &def)
   def.execPre  = texdrawPre<TYPES>;
   def.exec     = texdraw<TYPES, AccMode>;
   def.execPost = texdrawPost<TYPES>;
+  def.preparedHostNoop = true;
+  def.preparedScalarSafe = true;
   def.accumulable = true;
-  def.registerProps = [](sculptcore::props::StructDef &sd) {
-  };
   def.loadUniformProps = [](sculptcore::brush::Brush &brush, sculptcore::props::DeviceInputCtx *ctx) {
   };
 }

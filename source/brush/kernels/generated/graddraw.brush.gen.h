@@ -83,9 +83,9 @@ static void createGraddrawBrush(BrushCommandDef<CommandCtx<TYPES>> &def)
   def.execPre  = graddrawPre<TYPES>;
   def.exec     = graddraw<TYPES, AccMode>;
   def.execPost = graddrawPost<TYPES>;
+  def.preparedHostNoop = true;
+  def.preparedScalarSafe = true;
   def.accumulable = false;
-  def.registerProps = [](sculptcore::props::StructDef &sd) {
-  };
   def.loadUniformProps = [](sculptcore::brush::Brush &brush, sculptcore::props::DeviceInputCtx *ctx) {
   };
 }

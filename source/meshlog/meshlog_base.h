@@ -97,6 +97,7 @@ enum _LogChunkTypes {
   /* A foreign undo channel riding the step (e.g. the VDM tile-delta chunk,
    * source/vdm/vdm_undo.h): opaque to MeshLog beyond the undo/redo virtuals. */
   External = 4,
+  PreparedData = 5,
 };
 MAKE_ENUM_CLASS(LogChunkTypes, _LogChunkTypes, int);
 
@@ -538,6 +539,7 @@ namespace detail {
 struct RowLayout {
   int count = 0;
   int total = 0;
+  bool skipTopo = false;
   Vector<int> offsets;
   Vector<int> sizes; /* bytes per attr cell (BOOL = 1) */
 
@@ -549,8 +551,9 @@ struct RowLayout {
    * ~LogChunkTopo clears the row pools before deleting its layouts. */
   mesh::DeformPoolUser pool;
 
-  void build(mesh::AttrGroup &src)
+  void build(mesh::AttrGroup &src, bool skipTopology = false)
   {
+    skipTopo = skipTopology;
     count = int(src.attrs.size());
     offsets.resize(count);
     sizes.resize(count);
@@ -606,7 +609,9 @@ struct ChunkElemRow {
       // TEMP attrs (e.g. .spatial.*.node) are derived state owned by the
       // spatial tree, not authoritative undo data — skip them so incremental
       // tree updates during a logged step don't taint replay.
-      if (ref.flag & mesh::AttrFlag::NOCOPY) {
+      if ((ref.flag & mesh::AttrFlag::NOCOPY) ||
+          (plan->skipTopo && (ref.flag & mesh::AttrFlag::TOPO)))
+      {
         continue;
       }
       uint8_t *dst = data_.data() + plan->offsets[i];
@@ -634,6 +639,8 @@ struct ChunkElemRow {
     int n = dst.attrs.size() < layout_->count ? int(dst.attrs.size()) : layout_->count;
     for (int i = 0; i < n; i++) {
       mesh::AttrRef &ref = dst.attrs[i];
+      if (layout_->skipTopo && (ref.flag & mesh::AttrFlag::TOPO))
+        continue;
       if (ref.flag & mesh::AttrFlag::NOCOPY) {
         // note: since this is called on element re-creation,
         // we want to restore nocopy attrs to their default states
@@ -711,7 +718,9 @@ struct ChunkElemRow {
     int n = live.attrs.size() < layout_->count ? int(live.attrs.size()) : layout_->count;
     for (int i = 0; i < n; i++) {
       mesh::AttrRef &ref = live.attrs[i];
-      if (ref.flag & mesh::AttrFlag::NOCOPY) {
+      if ((ref.flag & mesh::AttrFlag::NOCOPY) ||
+          (layout_->skipTopo && (ref.flag & mesh::AttrFlag::TOPO)))
+      {
         continue;
       }
       uint8_t *slot = data_.data() + layout_->offsets[i];
@@ -1665,6 +1674,13 @@ struct MeshLog {
     return entries.size() > 0 ? entries.last().id : -1;
   }
 
+  bool hasOpenStepFor(const mesh::Mesh *mesh, int id) const
+  {
+    return (!active_mesh_ || active_mesh_ == mesh) && curStep_ >= 0 &&
+           curStep_ < entries.size() && entries[curStep_].id == id &&
+           !entries[curStep_].finalized;
+  }
+
   /** Estimated heap bytes retained by the step with @p id (0 if freed). */
   double stepMemSize(int id)
   {
@@ -1897,12 +1913,18 @@ struct MeshLog {
     Vector<spatial::SpatialNode *> nodes;
     nodes.ensure_capacity(64); // one alloc rather than growing 4 -> 8 -> ... per dab
     tree->filterNodes(center, radius, nodes);
+    capturePreviewNodes(m, {nodes.data(), nodes.size()});
+  }
+
+  /** Extend the current preview with the executor's evaluated region union. */
+  void capturePreviewNodes(mesh::Mesh *m, std::span<spatial::SpatialNode *> nodes)
+  {
 
     mesh::AttrGroup &grp = m->v.attrs;
 
     Vector<mesh::AttrRef> elemRefs;
     for (mesh::AttrRef &ref : grp.attrs) {
-      if (ref.flag & mesh::AttrFlag::NOCOPY) {
+      if (ref.flag & (mesh::AttrFlag::NOCOPY | mesh::AttrFlag::TOPO)) {
         continue;
       }
       elemRefs.append(ref);
@@ -1966,7 +1988,8 @@ struct MeshLog {
     preview_.seenIdx.clear();
 
     mesh::AttrGroup &grp = m->v.attrs;
-    preview_.vertLayout.build(grp);
+    // Topology chunks restore connectivity; frozen columns have no readable pages.
+    preview_.vertLayout.build(grp, true);
 
     capturePreviewRegion(m, tree, center, radius);
 
@@ -2025,7 +2048,7 @@ struct MeshLog {
     auto &chunks = curEntry().chunks;
     for (int i = int(chunks.size()) - 1; i >= int(preview_.chunkBaseline); i--) {
       LogChunk *c = chunks[i];
-      if (c->type != LogChunkTypes::Topo) {
+      if (c->type != LogChunkTypes::Topo && c->type != LogChunkTypes::PreparedData) {
         continue;
       }
       c->undo(m, tree);

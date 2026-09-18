@@ -84,14 +84,12 @@ static void createWingscrapeBrush(BrushCommandDef<CommandCtx<TYPES>> &def)
   def.execPre  = wingscrapePre<TYPES>;
   def.exec     = wingscrape<TYPES, AccMode>;
   def.execPost = wingscrapePost<TYPES>;
+  def.preparedHostNoop = false;
+  def.preparedScalarSafe = false;
   def.accumulable = true;
-  def.uniforms.append(sculptcore::brush::BrushUniformManifestEntry{"wingAngle", true, false, 0.0f, false, 0.0f, 0.0f});
-  def.uniforms.append(sculptcore::brush::BrushUniformManifestEntry{"planeoff", true, true, 0.0f, false, 0.0f, 0.0f});
-  def.uniforms.append(sculptcore::brush::BrushUniformManifestEntry{"radius", true, true, 0.0f, false, 0.0f, 0.0f});
-  def.registerProps = [](sculptcore::props::StructDef &sd) {
-    if (!sd.has("planeoff")) sd.Float32("planeoff", "planeoff").Default(0.0f);
-    if (!sd.has("radius")) sd.Float32("radius", "radius").Default(0.0f);
-  };
+  def.uniforms.append(sculptcore::brush::BrushUniformManifestEntry{"wingAngle", true, false, 0.0, false, 0.0, 0.0, -1, sculptcore::props::Prop::FLOAT32, false});
+  def.uniforms.append(sculptcore::brush::BrushUniformManifestEntry{"planeoff", true, true, 0.0, false, 0.0, 0.0, -1, sculptcore::props::Prop::FLOAT32, false});
+  def.uniforms.append(sculptcore::brush::BrushUniformManifestEntry{"radius", true, true, 0.0, false, 0.0, 0.0, -1, sculptcore::props::Prop::FLOAT32, false});
   def.loadUniformProps = [](sculptcore::brush::Brush &brush, sculptcore::props::DeviceInputCtx *ctx) {
     brush.planeoff = brush.props.lookupValue<float>("planeoff", 0.0f, ctx);
     brush.radius = brush.props.lookupValue<float>("radius", 0.0f, ctx);

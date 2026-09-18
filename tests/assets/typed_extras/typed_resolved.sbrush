@@ -1,0 +1,21 @@
+@brush("typedResolved")
+brush TypedResolved {
+  uniform float typed_gain = 0.25;
+  uniform int typed_count = 16777217 @dynamic;
+  uniform bool typed_enabled = true @dynamic;
+  uniform int typed_low = -2147483648;
+  uniform int typed_high = 2147483647;
+  uniform bool typed_static = true;
+  uniform int typed_limited = 2 @range(0.1, 2.9);
+  uniform bool invert;
+
+  vertex void apply(inout Vertex v) {
+    if (strength(v.co) == 0.0) { continue; }
+    int work = typed_count;
+    work += 1;
+    bool do_apply = typed_enabled && typed_static && !invert;
+    if (do_apply && typed_count == 16777217 && work == 16777218) {
+      v.co += float3(typed_gain, 0.0, 0.0);
+    }
+  }
+}

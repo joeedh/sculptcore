@@ -10,6 +10,7 @@
 #include "litestl/util/vector.h"
 
 #include <algorithm>
+#include <atomic>
 #include <cstring>
 #include <istream>
 #include <iterator>
@@ -23,6 +24,14 @@ using litestl::util::string;
 using litestl::util::Vector;
 
 namespace sculptcore::subdiv {
+
+uint64_t GridsStore::nextIncarnation()
+{
+  // Runtime identity survives paging/reindexing but never deserialization or
+  // reconstruction. These tokens are deliberately absent from the file format.
+  static std::atomic<uint64_t> next{1};
+  return next.fetch_add(1, std::memory_order_relaxed);
+}
 
 // Chunk sizing target: ~256 KiB of floats. Chunks hold whole grids, so a grid
 // larger than the target gets a chunk to itself.

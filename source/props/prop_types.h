@@ -14,6 +14,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <limits>
 
 using namespace litestl;
 namespace sculptcore::props {
@@ -28,9 +29,19 @@ template <typename T, typename Child> struct NumBase : public PropBase<Child, T>
   NumBase(Prop type) : Base(type)
   {
     internal_value_ = T(double(0));
+    if constexpr (std::is_arithmetic_v<T>) {
+      min = std::numeric_limits<T>::lowest();
+      max = std::numeric_limits<T>::max();
+    } else {
+      min = T(std::numeric_limits<float>::lowest());
+      max = T(std::numeric_limits<float>::max());
+    }
+    step = T(1);
   }
 
-  NumBase(const NumBase &b) : Base(b)
+  NumBase(const NumBase &b)
+      : Base(b), dynamics(b.dynamics), min(b.min), max(b.max), step(b.step),
+        internal_value_(b.internal_value_)
   {
   }
 

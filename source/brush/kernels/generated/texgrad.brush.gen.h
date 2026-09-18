@@ -120,9 +120,9 @@ static void createTexgradBrush(BrushCommandDef<CommandCtx<TYPES>> &def)
   def.execPre  = texgradPre<TYPES>;
   def.exec     = texgrad<TYPES, AccMode>;
   def.execPost = texgradPost<TYPES>;
+  def.preparedHostNoop = true;
+  def.preparedScalarSafe = true;
   def.accumulable = false;
-  def.registerProps = [](sculptcore::props::StructDef &sd) {
-  };
   def.loadUniformProps = [](sculptcore::brush::Brush &brush, sculptcore::props::DeviceInputCtx *ctx) {
   };
 }

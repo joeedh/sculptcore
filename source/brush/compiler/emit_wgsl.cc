@@ -435,12 +435,18 @@ struct Emit {
           out += buf;
         }
       } else if (auto *f = findField(nm)) {
+        if (f->type == TypeKind::Bool) {
+          out += "(";
+        }
         if (f->kind == FieldKind::Uniform) {
           out += "brush_u.";
           out += e.name;
         } else {
           out += "ctx_u.";
           out += e.name;
+        }
+        if (f->type == TypeKind::Bool) {
+          out += " != 0u)";
         }
       } else {
         out += e.name;
@@ -1317,7 +1323,7 @@ struct Emit {
         out += buf;
         out += ">";
       } else {
-        out += wgslType(f.type);
+        out += f.type == TypeKind::Bool ? "u32" : wgslType(f.type);
       }
     };
 
@@ -1627,8 +1633,11 @@ struct Emit {
     write("fn brush_unbounded_window(p: vec3<f32>) -> f32 {\n");
     write("  let sb_R = brush_u.radius * brush_u.unbounded_extent;\n");
     write("  if (!(sb_R > 0.0)) { return 1.0; }\n");
-    write("  let sb_d = length(p - ctx_u.surfacePos);\n");
-    write("  let sb_t = clamp((sb_R - sb_d) / (0.2 * sb_R), 0.0, 1.0);\n");
+    write("  let sb_offset = p - ctx_u.surfacePos;\n");
+    write("  if (max(max(abs(sb_offset.x), abs(sb_offset.y)), abs(sb_offset.z)) >= sb_R) "
+          "{ return 0.0; }\n");
+    write("  let sb_d = length(sb_offset / sb_R);\n");
+    write("  let sb_t = clamp((1.0 - sb_d) / 0.2, 0.0, 1.0);\n");
     write("  return sb_t * sb_t * (3.0 - 2.0 * sb_t);\n");
     write("}\n\n");
     // Brush-texture modulation — kept in lockstep with

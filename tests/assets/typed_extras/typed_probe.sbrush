@@ -1,0 +1,26 @@
+@brush("typedProbe")
+brush TypedProbe {
+  uniform float typed_gain = 0.25;
+  uniform int typed_count = 16777217 @dynamic;
+  uniform bool typed_enabled = true @dynamic;
+  uniform int typed_low = -2147483648;
+  uniform int typed_high = 2147483647;
+  uniform bool typed_static = true;
+  uniform int typed_limited = 2 @range(0.1, 2.9);
+  uniform bool invert;
+  ctx int typed_work = 16777217;
+  ctx bool typed_gate = true;
+
+  host void prepare() {
+    typed_work = typed_count;
+    typed_work += 1;
+    typed_gate = typed_enabled;
+  }
+
+  vertex void apply(inout Vertex v) {
+    bool do_apply = typed_enabled && typed_static && typed_gate && !invert;
+    if (do_apply && typed_count == 16777217 && typed_work == 16777218) {
+      v.co += float3(typed_gain, 0.0, 0.0);
+    }
+  }
+}

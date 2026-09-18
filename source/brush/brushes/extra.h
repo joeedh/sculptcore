@@ -19,6 +19,16 @@ namespace sculptcore::brush {
 
 inline constexpr int extraBrushCount = 0;
 
+inline void ensureExtraUniformDefaults(Brush &)
+{
+}
+
+inline const NamedUniformDescriptor *generatedExtraNamedUniformDescriptor(props::Prop,
+                                                                          int)
+{
+  return nullptr;
+}
+
 inline bool extraBrushUsesForNeighbor(int /*id*/)
 {
   return false;

@@ -42,9 +42,27 @@ struct BrushHooks {
   BrushHookFn dabPre = nullptr;
   /** Every dab, after the kernel ran. E.g. POLYGROUP's boundary-dirty mark. */
   BrushHookFn dabPost = nullptr;
+  /** Safe before prepared execution, independent of stage scalars and dab order. */
+  bool preparedInvariant = false;
+  /** Grids use the read-only zero boundary column and need no mesh refresh. */
+  bool preparedGridSkip = false;
+  /** Command-specific preparation runs inside exec after base initialization. */
+  bool preparedPerCommand = false;
+  bool preparedStageHooks = false;
 };
 
 /** Tool-keyed hook lookup; null when the tool needs no host-side passes. */
 const BrushHooks *brushHooksFor(SculptBrushes tool);
+
+inline bool preparedHooksSupported(SculptBrushes tool, bool grid)
+{
+  const auto *hooks = brushHooksFor(tool);
+  if (hooks && hooks->preparedStageHooks)
+    return !grid;
+  if (hooks && hooks->preparedPerCommand)
+    return !grid && !hooks->stepPreFreeze && !hooks->dabPost;
+  return !hooks || (hooks->preparedInvariant && !hooks->dabPre && !hooks->dabPost &&
+                    (!grid || hooks->preparedGridSkip));
+}
 
 } // namespace sculptcore::brush

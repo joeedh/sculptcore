@@ -35,12 +35,13 @@ import type {float3} from './litestl/math/float3'
 import type {EdgeData} from './sculptcore/mesh/EdgeData'
 import type {DrawBatch} from './sculptcore/gpu/DrawBatch'
 import type {TextureProgramParam} from './sculptcore/brush/TextureProgramParam'
-import type {AttrDef} from './sculptcore/gpu/AttrDef'
 import type {VdmStore} from './sculptcore/vdm/VdmStore'
+import type {AttrDef} from './sculptcore/gpu/AttrDef'
 import type {DrawPipeline} from './sculptcore/gpu/DrawPipeline'
 import type {ShaderDef} from './sculptcore/gpu/ShaderDef'
 import type {VertexData} from './sculptcore/mesh/VertexData'
 import type {DynTopoStats} from './sculptcore/dyntopo/DynTopoStats'
+import type {BrushScalarResult} from './sculptcore/brush/BrushScalarResult'
 import type {BrushAttrManifestEntry} from './sculptcore/brush/BrushAttrManifestEntry'
 import type {BrushDefFlags} from './sculptcore/brush/BrushDefFlags'
 import type {UniformDef} from './sculptcore/gpu/UniformDef'
@@ -85,12 +86,13 @@ export type {float3} from './litestl/math/float3'
 export type {EdgeData} from './sculptcore/mesh/EdgeData'
 export type {DrawBatch} from './sculptcore/gpu/DrawBatch'
 export type {TextureProgramParam} from './sculptcore/brush/TextureProgramParam'
-export type {AttrDef} from './sculptcore/gpu/AttrDef'
 export type {VdmStore} from './sculptcore/vdm/VdmStore'
+export type {AttrDef} from './sculptcore/gpu/AttrDef'
 export type {DrawPipeline} from './sculptcore/gpu/DrawPipeline'
 export type {ShaderDef} from './sculptcore/gpu/ShaderDef'
 export type {VertexData} from './sculptcore/mesh/VertexData'
 export type {DynTopoStats} from './sculptcore/dyntopo/DynTopoStats'
+export type {BrushScalarResult} from './sculptcore/brush/BrushScalarResult'
 export type {BrushAttrManifestEntry} from './sculptcore/brush/BrushAttrManifestEntry'
 export type {BrushDefFlags} from './sculptcore/brush/BrushDefFlags'
 export type {UniformDef} from './sculptcore/gpu/UniformDef'
@@ -160,6 +162,7 @@ export type AllBoundTypes = {
   'sculptcore::gpu::Buffer': Buffer
   'litestl::math::int2': int2
   'sculptcore::brush::BrushDefFlags': BrushDefFlags
+  'sculptcore::brush::BrushScalarResult': BrushScalarResult
   'sculptcore::spatial::SpatialTree': SpatialTree
   'sculptcore::brush::CommandExecutor': CommandExecutor
   'sculptcore::gpu::DrawPipeline': DrawPipeline

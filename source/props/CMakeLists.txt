@@ -15,6 +15,7 @@ set(SRC
   PUBLIC prop_types.h
   prop_inherit.cc
   prop_struct.cc
+  prop_declarations.cc
   props.cc
   curve_cache.cc
   curve_bake.cc

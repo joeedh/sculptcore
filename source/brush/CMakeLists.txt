@@ -11,7 +11,14 @@ set(LIB
 )
 
 set(SRC
+  PUBLIC semantic_scalars.h
+  semantic_scalars.cc
   PUBLIC brush.h
+  PUBLIC brush_preparation.h
+  PUBLIC prepared_cavity.h
+  brush_preparation.cc
+  PUBLIC brush_program_preparation.h
+  brush_program_preparation.cc
   PUBLIC test.h
   PUBLIC exec.h
   PUBLIC props.h
@@ -25,10 +32,12 @@ set(SRC
   PUBLIC gpu_brush_session.h
   c-api/gpu_brush_c_api.cc
   PUBLIC grid_executor.h
+  grid_executor.cc
   PUBLIC grid_gpu_session.h
   c-api/grid_stroke_c_api.cc
   c-api/mesh_stroke_batch_c_api.cc
   PUBLIC cage_smooth.h
+  cage_smooth.cc
   c-api/cage_smooth_c_api.cc
   PUBLIC stroke_spacing.h
   PUBLIC stroke_curve.h
@@ -53,6 +62,8 @@ set(SRC
   brush_executor.h
   brush_executor.cc
   brush.cc
+  PUBLIC brush_configuration.h
+  brush_configuration.cc
   PUBLIC bindings.h
   bindings.cc
 )
@@ -78,6 +89,11 @@ if (NOT BUILD_WASM AND SBRUSH_BACKEND_CPP)
 endif()
 
 wasm_add_symbols("
+  SemanticScalars_create
+  SemanticScalars_free
+  SemanticScalars_add
+  SemanticScalars_replaceDynamics
+  SemanticScalars_evaluate
   GpuBrush_beginStroke
   GpuBrush_free
   GpuBrush_kernelName
@@ -107,10 +123,31 @@ wasm_add_symbols("
   MeshStroke_castBatch
   MeshStroke_dabBatch
   MeshStroke_dabBatchProgram
+  MeshStroke_dabResolved
+  MeshStroke_dabResolvedImage
+  BrushProgram_setScalarChecked
+  BrushProgram_replaceCavityCurveChecked
+  BrushProgram_removeCavityCurveChecked
+  BrushProgram_replaceResponseDynamicsChecked
+  BrushProgram_removeDynamicsChecked
+  MeshStroke_dabProgramResolved
+    MeshStroke_dabProgramResolvedImage
+    MeshStroke_dabProgramResolvedDyntopo
+  MeshStroke_dabBatchInputs
+  MeshStroke_dabBatchProgramInputs
+  GridStroke_supportsResolved
+  GridStroke_dabResolved
+  GridStroke_dabResolvedImage
+  GridStroke_dabProgramResolved
+  GridStroke_dabBatchInputs
+  GridStroke_dabBatchProgramInputs
   CageSmooth_new
   CageSmooth_free
   CageSmooth_begin
   CageSmooth_dabBatch
+  CageSmooth_dabCurrentInputs
+  CageSmooth_supportsResolved
+  CageSmooth_dabResolved
   CageSmooth_end
   GridStroke_end
   GridStroke_canUndo
@@ -452,4 +489,3 @@ if (NOT BUILD_WASM AND SBRUSH_BACKEND_OPENCL)
   add_custom_target(sbrush-opencl ALL DEPENDS ${CL_OUTPUTS})
   sbrush_backend(opencl clspv)
 endif()
-

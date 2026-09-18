@@ -59,6 +59,8 @@ struct GridTree {
   void refreshAllBounds();
   /** Recompute the AABBs of `leafIds` (a stroke's touched-leaf set). */
   void refreshBounds(std::span<const int> leafIds);
+  /** Refresh every leaf containing a moved vertex, including nonowner seams. */
+  void refreshVertexBounds(std::span<const int> verts);
 
   /** Leaf indices whose AABB intersects the sphere. Returns any hit. */
   bool query(const float3 &co, float radius, Vector<int> &out) const;
@@ -76,6 +78,8 @@ private:
   void leafBounds(Leaf &leaf);
 
   GridLevelDomain *d_ = nullptr;
+  Vector<int> boundsLeaves_;
+  Vector<uint8_t> boundsSeen_;
 };
 
 } // namespace sculptcore::subdiv

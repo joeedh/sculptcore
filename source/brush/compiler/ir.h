@@ -243,6 +243,8 @@ struct Field {
   double rangeMin = 0.0;
   double rangeMax = 0.0;
   bool dynamicCapable = true;
+  bool dynamicExplicit = false;
+  bool staticExplicit = false;
 };
 
 // A `save <domain> <name>[, <name>...];` declaration: one entry per name. Tells

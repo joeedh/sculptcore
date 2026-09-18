@@ -209,10 +209,11 @@ int main()
     Brush brush;
     CommandExecutor exec(/*tree=*/nullptr, &brush);
     auto cmd = exec.createCommand(SculptBrushes::WINGSCRAPE);
-    // wingAngle is @static so registerProps skips it; register it by hand to
-    // construct the bad state (a dynamic on a non-dynamic-capable uniform).
+    // Inject invalid native state after verifying the checked setter rejects it.
     brush.props.struct_def->Float32("wingAngle", "wingAngle");
     brush.addPropDynamicByName("wingAngle", PRESSURE, MULTIPLY, 1.0f);
+    test_assert(brush.propDynamics("wingAngle")->devices.size() == 0);
+    brush.propDynamics("wingAngle")->devices.append(sculptcore::props::DynamicDevice{});
 
     auto res = exec.validateUniformDynamics(cmd);
     fprintf(stderr, "static: ok=%d contains=%d\n", res.ok, msgContains(res, "@static"));
@@ -227,7 +228,10 @@ int main()
     auto cmd = exec.createCommand(SculptBrushes::KELVINLET);
     cmd.registerProps(*brush.props.struct_def);
     brush.addPropDynamicByName("mu", PRESSURE, MULTIPLY, 1.0f);
-    brush.setPropDynamicSampleByName("mu", PRESSURE, 0, 1, 0.5f); // 1-entry table
+    brush.setPropDynamicSampleByName("mu", PRESSURE, 0, 1, 0.5f);
+    test_assert(brush.propDynamics("mu")->devices[0].curveTable.size() == 0);
+    brush.propDynamics("mu")->devices[0].curveTable.append(
+        0.5f); // Deliberate corruption.
 
     auto res = exec.validateUniformDynamics(cmd);
     fprintf(stderr, "unbaked: ok=%d contains=%d\n", res.ok, msgContains(res, "1 entry"));

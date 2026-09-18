@@ -22,6 +22,26 @@ export interface BrushProgram {
   addCommand(type: int32): int32
   setCommandFloat(idx: int32, propId: int32, v: float): void
   setCommandFloatByName(idx: int32, name: string, v: float): void
+  replaceCommandResponseDynamicsChecked(
+    idx: int32,
+    name: string,
+    scalarType: int32,
+    devices: int32[],
+    modes: int32[],
+    factors: float[],
+    enabled: int32[],
+    offsets: int32[],
+    samples: float[],
+    kinds: int32[],
+    parameters: double[]
+  ): int32
+  removeCommandDynamicsChecked(
+    idx: int32,
+    name: string,
+    scalarType: int32
+  ): int32
+  replaceCommandCavityCurveChecked(idx: int32, samples: float[]): int32
+  removeCommandCavityCurveChecked(idx: int32): int32
   setCommandInvert(idx: int32, inv: boolean): void
   setCommandAttrLayer(idx: int32, attrIdx: int32, layerIndex: int32): void
   new (): BrushProgram
