@@ -192,8 +192,9 @@ static void preparedExtraCandidates(int tool)
                                prepared);
   };
   test_assert(run().error == PropError::ERROR_NONE);
-  test_assert(prepared.values().size() == 13 + executorSettingDeclarations().size() &&
-              prepared.declarations().size() == 8);
+  // Six common values, seven probe extras and nine shared executor settings.
+  // ENHANCE's two neighborhood settings only belong to kernels declaring them.
+  test_assert(prepared.values().size() == 22 && prepared.declarations().size() == 8);
   test_assert(candidateValue(prepared, "typed_count") == 16777217);
   test_assert(candidateValue(prepared, "typed_low") == INT32_MIN);
   test_assert(candidateValue(prepared, "typed_high") == INT32_MAX);
@@ -201,6 +202,8 @@ static void preparedExtraCandidates(int tool)
   test_assert(candidateValue(prepared, "invert") == 0);
   ensureExtraUniformDefaults(reference);
   for (const auto &value : prepared.values()) {
+    test_assert(value.name != string("enhance_rings") &&
+                value.name != string("enhance_inner"));
     if (value.storeSlot < 0)
       continue;
     const double expected =
