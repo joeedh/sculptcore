@@ -8,8 +8,16 @@ set(LIB_SRC
   PUBLIC ui.h
   PUBLIC gpu_stroke.h
   PUBLIC roughness.h
+  PUBLIC script/script_util.h
   scene.cc
   script.cc
+  script/script_util.cc
+  script/script_setup.cc
+  script/script_vdm.cc
+  script/script_stroke.cc
+  script/script_multires.cc
+  script/script_bench.cc
+  script/script_remesh.cc
   roughness.cc
   gpu_stroke.cc
   stb_image_impl.cc

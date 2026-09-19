@@ -216,7 +216,7 @@ From the exploration of the codebase:
   `source/mesh/c-api/mesh_c_api.cc` is a whole-mesh topology change exposed
   as a plain `extern "C"` symbol — listed in `source/mesh/CMakeLists.txt`'s
   `WASM_SYMBOLS` block, hand-wrapped for native in
-  `source/napi/napi_runtime.cc` (`NapiRuntime::MeshTriangulate` +
+  `source/napi/napi_mesh_vdm.cc` (`NapiRuntime::MeshTriangulate` +
   `define(exports, "meshTriangulate", …)`). Quad remesh mirrors this (see
   revised M6).
 - **Debug app verb registry**: `source/debug/script.cc::execVerb` — a chain
@@ -228,7 +228,7 @@ From the exploration of the codebase:
   `source/core/bindings.cc::initBindings`, and `source/remesh/c-api/
   remesh_c_api.cc` for the `extern "C"` entry point. **Both backends:** add
   the symbol to the module's `WASM_SYMBOLS` CMake list *and* hand-write a
-  native N-API wrapper in `source/napi/napi_runtime.cc` (see M6 + the
+  native N-API wrapper in `source/napi/napi_mesh_vdm.cc` (see M6 + the
   integration section).
 - **Tests**: `tests/test_mesh.cc` is the reference shape (GTest-style,
   native only). Each milestone adds a `tests/test_remesh_<phase>.cc` wired
@@ -515,7 +515,7 @@ Build:
   - add `Mesh_quadRemesh` to the new module's `WASM_SYMBOLS` block in
     `source/remesh/CMakeLists.txt` (mirroring `Mesh_triangulate` in
     `source/mesh/CMakeLists.txt`);
-  - hand-write the native wrapper in `source/napi/napi_runtime.cc`
+  - hand-write the native wrapper in `source/napi/napi_mesh_vdm.cc`
     (`NapiRuntime::MeshQuadRemesh`) and register it with
     `define(exports, "meshQuadRemesh", …)` — copy the `MeshTriangulate`
     wrapper's `napi_unwrap` shape.
@@ -786,7 +786,7 @@ backend silently diverges from WASM (and the parity test catches it):
 1. **C++ C-API** (M6): `Mesh_quadRemesh(Mesh *in, RemeshParams *params) →
    Mesh *` in `source/remesh/c-api/remesh_c_api.cc`, listed in that module's
    `WASM_SYMBOLS` CMake block, **and** hand-wrapped natively in
-   `source/napi/napi_runtime.cc` (`NapiRuntime::MeshQuadRemesh` +
+   `source/napi/napi_mesh_vdm.cc` (`NapiRuntime::MeshQuadRemesh` +
    `define(exports, "meshQuadRemesh", …)`). It returns a *new* mesh; the input
    is left intact so the host can keep it for undo.
 

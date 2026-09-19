@@ -1,8 +1,9 @@
-[ ]: split ../sculptcore_addon/convert.py into smaller files
-[ ]: split source/spatial/spatial.cc into smaller files 
-[ ]: split source/napi/napi_runtime.cc into smaller files
-[ ]: split source/meshlog/meshlog_base.h into smaller files
-[ ]: split source/brush/brush_executor.h into smaller files
+[x]: split ../sculptcore_addon/convert.py into smaller files
+[ ]: split source/spatial/spatial.cc into smaller files
+[x]: split source/debug/script.cc into smaller files
+[x]: split source/napi/napi_runtime.cc into smaller files
+[x]: split source/meshlog/meshlog_base.h into smaller files
+[x]: split source/brush/brush_executor.h into smaller files
 [ ]: split source/brush/compiler/emit_cpp.cc into smaller files
 [ ]: split source/subdiv/multires.cc into smaller files
 [ ]: split tests/test_grid_stroke.cc into smaller files if possible

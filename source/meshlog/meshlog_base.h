@@ -55,15 +55,11 @@ two records coexist (kill-first, create-second) and replay correctly.
 #include "binding/binding_constructor_builder.h"
 #include "litestl/math/vector.h"
 #include "litestl/util/map.h"
-#include "litestl/util/pool.h"
 #include "litestl/util/set.h"
 #include "litestl/util/span.h"
 #include "litestl/util/vector.h"
 #include "mesh/attribute.h"
 #include "mesh/attribute_bool.h"
-#include "mesh/attribute_builtin.h"
-#include "mesh/attribute_enums.h"
-#include "mesh/boundary.h"
 #include "mesh/mesh.h"
 #include "mesh/mesh_callbacks.h"
 #include "mesh/mesh_enums.h"
@@ -74,12 +70,14 @@ two records coexist (kill-first, create-second) and replay correctly.
 #include "mesh/ops/loopcut.h"
 #include "mesh/ops/split.h"
 #include "mesh/ops/subdivide.h"
+#include "meshlog_chunk.h"
+#include "meshlog_reorder.h"
+#include "meshlog_row.h"
+#include "meshlog_topo.h"
+#include "meshlog_types.h"
 #include "spatial/node.h"
 #include "spatial/spatial.h"
 
-#ifdef SCULPTCORE_WITH_ABSEIL
-#include <../extern/abseil-cpp/absl/container/flat_hash_map.h>
-#endif
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
@@ -89,1400 +87,6 @@ namespace sculptcore::meshlog {
 using litestl::math::float3;
 using litestl::util::string;
 using litestl::util::Vector;
-
-enum _LogChunkTypes {
-  Topo = 1,
-  Reorder = 2,
-  Elems = 3,
-  /* A foreign undo channel riding the step (e.g. the VDM tile-delta chunk,
-   * source/vdm/vdm_undo.h): opaque to MeshLog beyond the undo/redo virtuals. */
-  External = 4,
-  PreparedData = 5,
-};
-MAKE_ENUM_CLASS(LogChunkTypes, _LogChunkTypes, int);
-
-enum class LogElemKind : uint8_t { Vert = 0, Edge = 1, Corner = 2, List = 3, Face = 4 };
-enum class LogOrigin : uint8_t { Existed, Created };
-enum class LogFate : uint8_t { Live, Dead };
-
-struct LogChunk {
-  LogChunkTypes type;
-  LogChunk(LogChunkTypes type) : type(type)
-  {
-  }
-  virtual ~LogChunk()
-  {
-  }
-  virtual void undo(mesh::Mesh *m, spatial::SpatialTree *tree)
-  {
-  }
-  virtual void redo(mesh::Mesh *m, spatial::SpatialTree *tree)
-  {
-  }
-  /** Estimated heap bytes retained by this chunk (undo memory accounting). */
-  virtual double memSize()
-  {
-    return double(sizeof(LogChunk));
-  }
-};
-
-namespace detail {
-struct ChunkElemData {
-  /** Declared first so it destructs LAST — after attrs_, whose ~AttrGroup
-   * releases this store's weight slots back into the pool. The mesh is routinely
-   * deleted before the log that logged it, so the reference is what keeps the
-   * pool addressable that long. */
-  mesh::DeformPoolUser pool_user;
-
-  mesh::BuiltinAttr<int, ".sculpt.undo.origIndex"> origIndex;
-  bool isSwapped = false;
-
-  ChunkElemData(int size, mesh::ElemType domain) : size_(size), domain_(domain)
-  {
-    attrs_.ensure_capacity(size);
-    origIndex.ensure(attrs_, true);
-  }
-
-  ChunkElemData &addAttr(int srcAttrIndex, mesh::AttrType type, string name)
-  {
-    attrs_.ensure(type, name, true);
-    srcAttrMap_.append(srcAttrIndex);
-    return *this;
-  }
-
-  ChunkElemData &ensureAttr(int srcAttrIndex, mesh::AttrType type, string name)
-  {
-    for (auto &attr : attrs_.attrs) {
-      if (attr.name == name && attr.type == type) {
-        return *this;
-      }
-    }
-    addAttr(srcAttrIndex, type, name);
-    return *this;
-  }
-  ChunkElemData &ensureAttr(const mesh::AttrGroup &src, const mesh::AttrRef &ref)
-  {
-    int index = -1;
-    int i = 0;
-    for (auto &ref2 : src.attrs) {
-      if (ref2.name == ref.name && ref2.type == ref.type) {
-        index = i;
-        break;
-      }
-      i++;
-    }
-    if (index == -1) {
-      fprintf(stderr,
-              "attribute %s (type %d) is not in mesh\n",
-              ref.name.c_str(),
-              int(ref.type));
-      abort();
-    }
-    bindPool(src);
-    return ensureAttr(index, ref.type, ref.name);
-  }
-
-  /** Point this store's group at the same DeformPool the mesh column uses, and
-   * take a user. Both halves are required before a WEIGHTS column can be
-   * created: AttrGroup::ensure asserts on the pool, and the rows this store
-   * copies are raw slot indices, only resolvable against that one pool. */
-  void bindPool(const mesh::AttrGroup &src)
-  {
-    // Bound once. Re-pointing at a second pool would strand the references the
-    // already-captured rows hold in the first one.
-    if (!src.deform_pool || attrs_.deform_pool) {
-      return;
-    }
-    pool_user.reset(src.deform_pool);
-    attrs_.deform_pool = src.deform_pool;
-  }
-
-  // TODO: figure out concept for iterator<int>
-  template <typename ITER> void cpyFrom(const mesh::AttrGroup &src, ITER &elements)
-  {
-    int index = 0;
-    for (int i : elements) {
-      cpyFrom(src, i, index);
-      index++;
-    }
-  }
-
-  void cpyFrom(const mesh::AttrGroup &src, int src_i, int dst_i)
-  {
-    using namespace sculptcore::mesh;
-
-    origIndex[dst_i] = src_i;
-
-    for (int i = 0; i < srcAttrMap_.size(); i++) {
-      int srcAttrIndex = srcAttrMap_[i];
-      if (srcAttrIndex == -1) {
-        // attribute disappeared
-        continue;
-      }
-
-      const auto &ref = src.attrs[srcAttrIndex];
-      auto &dstData = attrs_.attrs[i + 1].data;
-      const auto &srcData = ref.data;
-
-      if (ref.type == AttrType::BOOL) {
-        BoolAttrView *view = static_cast<BoolAttrView *>(ref.data);
-        BoolAttrView *dstView = static_cast<BoolAttrView *>(dstData);
-
-        dstView->set(dst_i, view->get(src_i));
-        continue;
-      }
-
-      /* srcData's page for src_i may be lazily unmaterialized — most captures
-       * only ever touch co/no (eagerly materialized), but capturePreviewRegion
-       * sweeps every non-NOCOPY attribute, including sparse ones (e.g. mask,
-       * cavity) that a never-touched vertex has no backing page for yet. */
-      srcData->materializeElem(src_i);
-
-      if (ref.type == AttrType::WEIGHTS && attrs_.deform_pool) {
-        // A plain memcpy would duplicate the slot index without a reference, and
-        // the pool would then reclaim a run this row still names.
-        dstData->materializeElem(dst_i);
-        attrs_.deform_pool->reassign(
-            *static_cast<WeightSlot *>(dstData->getElemData(dst_i)),
-            *static_cast<const WeightSlot *>(srcData->getElemData(src_i)));
-        continue;
-      }
-
-      memcpy(dstData->getElemData(dst_i), srcData->getElemData(src_i), dstData->elemSize);
-    }
-  };
-
-  /* Grow the store by one row, capturing element `src_i` of `src` for every
-   * ref in `refs`. Columns are registered on first sight (ensureAttr is
-   * idempotent), so the store is sparse / append-as-touched rather than dense
-   * node-sized. Returns the new row index. */
-  int appendFrom(const mesh::AttrGroup &src,
-                 int src_i,
-                 litestl::util::span<const mesh::AttrRef> refs)
-  {
-    for (const mesh::AttrRef &ref : refs) {
-      ensureAttr(src, ref);
-    }
-    int dst_i = size_++;
-    attrs_.ensure_capacity(size_);
-    cpyFrom(src, src_i, dst_i);
-    return dst_i;
-  }
-
-  /* Grow the store by `n` unfilled rows (columns pre-registered via ensureAttr
-   * and materialized here), returning the first new row index. The parallel
-   * capture (parallel_capture.h) then fills disjoint row ranges with cpyFrom
-   * from multiple threads. */
-  int appendRows(int n)
-  {
-    int base = size_;
-    size_ += n;
-    attrs_.ensure_capacity(size_);
-    return base;
-  }
-
-  void swapWith(const mesh::AttrGroup &src, int src_i, int dst_i)
-  {
-    using namespace sculptcore::mesh;
-    char buf[64];
-
-    for (int i = 0; i < srcAttrMap_.size(); i++) {
-      int srcAttrIndex = srcAttrMap_[i];
-      if (srcAttrIndex == -1) {
-        // attribute disappeared
-        continue;
-      }
-
-      const auto &ref = src.attrs[srcAttrIndex];
-      auto &dstData = attrs_.attrs[i + 1].data;
-
-      if (ref.type == AttrType::BOOL) {
-        BoolAttrView *view = static_cast<BoolAttrView *>(ref.data);
-        BoolAttrView *dstView = static_cast<BoolAttrView *>(dstData);
-
-        bool tmp = dstView->get(dst_i);
-        dstView->set(dst_i, view->get(src_i));
-        view->set(src_i, tmp);
-        continue;
-      }
-
-      const auto &srcData = ref.data;
-
-      /* See cpyFrom(): srcData's page for src_i may be lazily unmaterialized. */
-      srcData->materializeElem(src_i);
-
-      // A WEIGHTS column needs nothing special here: the two sides exchange slot
-      // indices, so the reference each already holds simply moves with it.
-      memcpy(static_cast<void *>(buf), dstData->getElemData(dst_i), dstData->elemSize);
-      memcpy(dstData->getElemData(dst_i), srcData->getElemData(src_i), dstData->elemSize);
-      memcpy(srcData->getElemData(src_i), static_cast<void *>(buf), dstData->elemSize);
-    }
-  };
-
-  // A row is appended the first time an element is touched in a step, so an
-  // element hit again later in the same step is normally gated out by
-  // AttrSaver — but a rolled-back preview dab's own capture can leave a stale
-  // row behind (its needsData() gate resets on rollback, so a later real
-  // touch appends a second row for the same origIndex). Two rows for one
-  // origIndex are captured oldest-first; undoing must therefore unwind
-  // newest-first (reverse) and redoing must replay oldest-first (forward) —
-  // rows are chained (mesh <-> row[N] <-> row[N-1] <-> ... ), and visiting
-  // them out of order strands the element on an intermediate value instead
-  // of its true endpoint.
-  void swap(mesh::AttrGroup &src, spatial::SpatialTree *tree)
-  {
-    updateSrcAttrMap(tree->m);
-
-    if (isSwapped) {
-      for (int i = 0; i < size_; i++) {
-        this->swapWith(src, origIndex[i], i);
-      }
-    } else {
-      for (int i = size_ - 1; i >= 0; i--) {
-        this->swapWith(src, origIndex[i], i);
-      }
-    }
-    isSwapped ^= true;
-  }
-  virtual void undo(mesh::AttrGroup &src, spatial::SpatialTree *tree)
-  {
-    swap(src, tree);
-  }
-  virtual void redo(mesh::AttrGroup &src, spatial::SpatialTree *tree)
-  {
-    swap(src, tree);
-  }
-
-  double memSize()
-  {
-    double tot = double(sizeof(*this)) + double(srcAttrMap_.size()) * sizeof(int);
-    tot += double(attrs_.bool_attrs.blocksize()) * double(size_);
-    for (auto &ref : attrs_.attrs) {
-      if (ref.type == mesh::AttrType::BOOL) {
-        continue;
-      }
-      tot += double(ref.data->elemSize) * double(size_);
-    }
-    return tot;
-  }
-
-  int size() const
-  {
-    return size_;
-  }
-
-  void updateSrcAttrMap(Mesh *m)
-  {
-    mesh::AttrGroup *meshAttrs = nullptr;
-
-    switch (domain_) {
-    case mesh::ElemType::VERTEX:
-      meshAttrs = &m->v.attrs;
-      break;
-    case mesh::ElemType::EDGE:
-      meshAttrs = &m->e.attrs;
-      break;
-    case mesh::ElemType::CORNER:
-      meshAttrs = &m->c.attrs;
-      break;
-    case mesh::ElemType::LIST:
-      meshAttrs = &m->l.attrs;
-      break;
-    case mesh::ElemType::FACE:
-      meshAttrs = &m->f.attrs;
-      break;
-    }
-
-    if (meshAttrs == nullptr) {
-      fprintf(stderr, "Error: updateSrcAttrMap called with invalid domain\n");
-      return;
-    }
-
-    auto oldSrcMap = srcAttrMap_;
-    srcAttrMap_.clear();
-
-    // skip origIndex which doesn't map to any real attribute in the mesh
-    for (int i = 1; i < attrs_.attrs.size(); i++) {
-      auto &ref = attrs_.attrs[i];
-      bool ok = false;
-
-      for (int j = 0; j < meshAttrs->attrs.size(); j++) {
-        if (ref.name == meshAttrs->attrs[j].name) {
-          srcAttrMap_.append(j);
-          ok = true;
-          break;
-        }
-      }
-
-      if (!ok) {
-        printf("Warning: attribute %p %s not found in mesh\n",
-               ref.name.c_str(),
-               ref.name.c_str());
-        srcAttrMap_.append(-1);
-      }
-      if (srcAttrMap_[i] != oldSrcMap[i]) {
-        printf("Info: attribute %s changed index in mesh\n", ref.name.c_str());
-      }
-    }
-  }
-
-private:
-  mesh::AttrGroup attrs_;
-  mesh::ElemType domain_;
-  Vector<int> srcAttrMap_; // one-to-one mapping to attributes in attrs_
-  int size_;
-};
-} // namespace detail
-
-/** Sparse, append-as-touched per-domain element store for brush undo capture.
- * The brush *Pre stage appends one row per element the first time it is touched
- * in a step (gated by AttrSaver, so dyntopo tree restructuring can't
- * double-capture); undo/redo swap by origIndex restores it. One chunk per
- * domain per step. */
-struct LogChunkElems : public LogChunk {
-  detail::ChunkElemData data;
-  mesh::ElemType domain;
-
-  LogChunkElems(mesh::ElemType domain)
-      : LogChunk(LogChunkTypes::Elems), data(0, domain), domain(domain)
-  {
-  }
-
-  void undo(mesh::Mesh *m, spatial::SpatialTree *tree) override
-  {
-    data.undo(group(m), tree);
-    update_nodes(m, tree);
-  }
-
-  void redo(mesh::Mesh *m, spatial::SpatialTree *tree) override
-  {
-    data.redo(group(m), tree);
-    update_nodes(m, tree);
-  }
-
-  double memSize() override
-  {
-    return double(sizeof(*this)) + data.memSize();
-  }
-
-private:
-  mesh::AttrGroup &group(mesh::Mesh *m)
-  {
-    switch (domain) {
-    case mesh::ElemType::VERTEX:
-      return m->v.attrs;
-    case mesh::ElemType::EDGE:
-      return m->e.attrs;
-    case mesh::ElemType::CORNER:
-      return m->c.attrs;
-    case mesh::ElemType::LIST:
-      return m->l.attrs;
-    default:
-      return m->f.attrs; // FACE
-    }
-  }
-
-  /* Mark the node owning each touched element dirty so its bounds/GPU buffers
-   * regenerate. Vertex/face domains carry a spatial node attribute; a corner
-   * maps to its face's owner (via live topo links — thaw first). Without the
-   * corner branch, an undo that swaps corner UV rows back (the reprojection
-   * capture) leaves the viewport's attribute streams showing the undone UVs. */
-  void update_nodes(mesh::Mesh *m, spatial::SpatialTree *tree)
-  {
-    using namespace sculptcore::spatial;
-    if (domain == mesh::ElemType::CORNER && m->topo_frozen) {
-      m->thawTopo();
-    }
-    for (int i : util::IndexRange(0, data.size())) {
-      int idx = data.origIndex[i];
-      int ni = 0;
-      if (domain == mesh::ElemType::VERTEX) {
-        ni = tree->treeMesh.v.node[idx];
-      } else if (domain == mesh::ElemType::FACE) {
-        ni = tree->treeMesh.f.node[idx];
-      } else if (domain == mesh::ElemType::CORNER) {
-        if (idx < 0 || idx >= int(m->c.capacity()) || m->c.freemap[idx]) {
-          continue;
-        }
-        // Attribute streams only — geometry/normals/bounds are untouched by a
-        // corner-row swap.
-        ni = tree->treeMesh.f.node[m->l.f[m->c.l[idx]]];
-        if (ni) {
-          tree->node_from_id(ni)->update(NodeFlags::Spatial_UpdateGPU);
-        }
-        continue;
-      } else {
-        return;
-      }
-      if (ni) {
-        SpatialNode *node = tree->node_from_id(ni);
-        // Spatial_UpdateNormals is required: undo/redo swaps co/no rows back via
-        // the element store but doesn't drive add_face/remove_*, so without this
-        // the node regenerates GPU buffers from stale normals (redo corruption).
-        node->update(NodeFlags::Spatial_UpdateGPU | NodeFlags::Spatial_RegenBounds |
-                     NodeFlags::Spatial_UpdateNormals);
-      }
-    }
-  }
-};
-
-namespace detail {
-
-/** Shared per-domain row layout: byte offsets/sizes for every attr of one
- * AttrGroup, computed once per (chunk, domain, attr-count) instead of per
- * captured row — the per-row recompute measured ~24% of a dyntopo dab's
- * wall. `count` doubles as the append-guard prefix: rows built on a layout
- * restore only the attrs that existed when it was built, so an AttrGroup
- * that has attrs *appended* between capture and replay stays safe (the new
- * trailing columns are simply not restored). Reordering is unsupported.
- * Owned by the LogChunkTopo whose rows reference it. */
-struct RowLayout {
-  int count = 0;
-  int total = 0;
-  bool skipTopo = false;
-  Vector<int> offsets;
-  Vector<int> sizes; /* bytes per attr cell (BOOL = 1) */
-
-  /* Byte offsets of the AttrType::WEIGHTS cells, so a row can retain/release
-   * them without re-walking a live AttrGroup — which it has none of at
-   * destruction time. Empty for the overwhelmingly common weightless mesh. */
-  Vector<int, 2> weight_cells;
-  /* Keeps that pool addressable for as long as any row built on this layout;
-   * ~LogChunkTopo clears the row pools before deleting its layouts. */
-  mesh::DeformPoolUser pool;
-
-  void build(mesh::AttrGroup &src, bool skipTopology = false)
-  {
-    skipTopo = skipTopology;
-    count = int(src.attrs.size());
-    offsets.resize(count);
-    sizes.resize(count);
-    weight_cells.clear();
-    total = 0;
-    for (int i = 0; i < count; i++) {
-      mesh::AttrRef &ref = src.attrs[i];
-      int sz = (ref.type == mesh::AttrType::BOOL) ? 1 : int(ref.data->elemSize);
-      offsets[i] = total;
-      sizes[i] = sz;
-      if (ref.type == mesh::AttrType::WEIGHTS && !(ref.flag & mesh::AttrFlag::NOCOPY)) {
-        weight_cells.append(total);
-      }
-      total += sz;
-    }
-    if (weight_cells.size() > 0) {
-      pool.reset(src.deform_pool);
-    }
-  }
-
-  double memSize() const
-  {
-    return double(sizeof(*this)) + double(offsets.size() + sizes.size()) * sizeof(int);
-  }
-};
-
-/**
- * Single-row attribute snapshot for one element in an AttrGroup, laid out
- * by a shared RowLayout (which must outlive the row — both are owned by the
- * same LogChunkTopo).
- */
-struct ChunkElemRow {
-  ChunkElemRow() = default;
-
-  /* Rows are pooled (LogChunkTopo::bodies_pool), so both release-and-reuse and
-   * pool teardown land here — that is what settles a captured run's reference. */
-  ~ChunkElemRow()
-  {
-    releaseWeights();
-  }
-
-  void captureFrom(const RowLayout *plan, mesh::AttrGroup &src, int src_idx)
-  {
-    releaseWeights(); // a reused row still names the previous element's runs
-    layout_ = plan;
-    data_.resize(plan->total);
-    /* NOCOPY cells are skipped below and must restore as zeros (their
-     * "default state" contract in writeTo) — pooled rows reuse buffers. */
-    memset(data_.data(), 0, size_t(plan->total));
-    for (int i = 0; i < plan->count; i++) {
-      mesh::AttrRef &ref = src.attrs[i];
-
-      // TEMP attrs (e.g. .spatial.*.node) are derived state owned by the
-      // spatial tree, not authoritative undo data — skip them so incremental
-      // tree updates during a logged step don't taint replay.
-      if ((ref.flag & mesh::AttrFlag::NOCOPY) ||
-          (plan->skipTopo && (ref.flag & mesh::AttrFlag::TOPO)))
-      {
-        continue;
-      }
-      uint8_t *dst = data_.data() + plan->offsets[i];
-
-      if (ref.type == mesh::AttrType::BOOL) {
-        mesh::BoolAttrView *view = static_cast<mesh::BoolAttrView *>(ref.data);
-        dst[0] = view->get(src_idx) ? 1 : 0;
-      } else {
-        const void *src = ref.data->getElemData(src_idx);
-        if (!src) { // unmaterialized page (frozen-topo column?) — see warnNullPage
-          warnNullPage("captureFrom", ref);
-          continue;
-        }
-        memcpy(static_cast<void *>(dst), src, size_t(plan->sizes[i]));
-      }
-    }
-    retainWeights();
-  }
-
-  void writeTo(mesh::AttrGroup &dst, int dst_idx)
-  {
-    if (!layout_) {
-      return; /* never captured */
-    }
-    int n = dst.attrs.size() < layout_->count ? int(dst.attrs.size()) : layout_->count;
-    for (int i = 0; i < n; i++) {
-      mesh::AttrRef &ref = dst.attrs[i];
-      if (layout_->skipTopo && (ref.flag & mesh::AttrFlag::TOPO))
-        continue;
-      if (ref.flag & mesh::AttrFlag::NOCOPY) {
-        // note: since this is called on element re-creation,
-        // we want to restore nocopy attrs to their default states
-        // (captured cells stay zeroed for NOCOPY)
-      }
-      uint8_t *src = data_.data() + layout_->offsets[i];
-
-      if (ref.type == mesh::AttrType::BOOL) {
-        mesh::BoolAttrView *view = static_cast<mesh::BoolAttrView *>(ref.data);
-        view->set(dst_idx, src[0] != 0);
-      } else {
-        void *dst = ref.data->getElemData(dst_idx);
-        if (!dst) {
-          warnNullPage("writeTo", ref);
-          continue;
-        }
-        if (ref.type == mesh::AttrType::WEIGHTS && layout_->pool.ptr) {
-          // The element is being re-created, so its cell is a fresh default —
-          // but reassign is right either way, and the row keeps its own copy.
-          layout_->pool.ptr->reassign(*static_cast<mesh::WeightSlot *>(dst),
-                                      *reinterpret_cast<const mesh::WeightSlot *>(src));
-          continue;
-        }
-        memcpy(dst, static_cast<const void *>(src), size_t(layout_->sizes[i]));
-      }
-    }
-  }
-
-  /* Re-read only the brush-deformable data columns (skip TOPO connectivity and
-   * NOCOPY temp state) into the already-laid-out buffer, leaving the rest of
-   * end_body frozen. Used to refresh a Created vert's captured position with its
-   * final post-stroke value (see LogChunkTopo::refreshCreatedVertData). */
-  void refreshDataColumns(mesh::AttrGroup &src, int src_idx)
-  {
-    if (!layout_) {
-      return; /* never captured */
-    }
-    int n = src.attrs.size() < layout_->count ? int(src.attrs.size()) : layout_->count;
-    for (int i = 0; i < n; i++) {
-      mesh::AttrRef &ref = src.attrs[i];
-      if ((ref.flag & mesh::AttrFlag::TOPO) || (ref.flag & mesh::AttrFlag::NOCOPY)) {
-        continue;
-      }
-      uint8_t *dst = data_.data() + layout_->offsets[i];
-      if (ref.type == mesh::AttrType::BOOL) {
-        mesh::BoolAttrView *view = static_cast<mesh::BoolAttrView *>(ref.data);
-        dst[0] = view->get(src_idx) ? 1 : 0;
-      } else {
-        const void *s = ref.data->getElemData(src_idx);
-        if (!s) {
-          continue;
-        }
-        if (ref.type == mesh::AttrType::WEIGHTS && layout_->pool.ptr) {
-          layout_->pool.ptr->reassign(*reinterpret_cast<mesh::WeightSlot *>(dst),
-                                      *static_cast<const mesh::WeightSlot *>(s));
-          continue;
-        }
-        memcpy(static_cast<void *>(dst), s, size_t(layout_->sizes[i]));
-      }
-    }
-  }
-
-  double memSize()
-  {
-    /* The shared RowLayout is counted once by the owning chunk. */
-    return double(sizeof(*this)) + double(data_.size());
-  }
-
-  void swapWith(mesh::AttrGroup &live, int live_idx)
-  {
-    if (!layout_) {
-      return; /* never captured */
-    }
-    uint8_t buf[64];
-    int n = live.attrs.size() < layout_->count ? int(live.attrs.size()) : layout_->count;
-    for (int i = 0; i < n; i++) {
-      mesh::AttrRef &ref = live.attrs[i];
-      if ((ref.flag & mesh::AttrFlag::NOCOPY) ||
-          (layout_->skipTopo && (ref.flag & mesh::AttrFlag::TOPO)))
-      {
-        continue;
-      }
-      uint8_t *slot = data_.data() + layout_->offsets[i];
-
-      if (ref.type == mesh::AttrType::BOOL) {
-        mesh::BoolAttrView *view = static_cast<mesh::BoolAttrView *>(ref.data);
-        bool tmp = view->get(live_idx);
-        view->set(live_idx, slot[0] != 0);
-        slot[0] = tmp ? 1 : 0;
-      } else {
-        void *live_p = ref.data->getElemData(live_idx);
-        if (!live_p) {
-          warnNullPage("swapWith", ref);
-          continue;
-        }
-        // WEIGHTS needs no special case: the row and the mesh exchange slot
-        // indices, so the reference each holds moves with it.
-        size_t n = size_t(layout_->sizes[i]);
-        memcpy(static_cast<void *>(buf), live_p, n);
-        memcpy(live_p, static_cast<const void *>(slot), n);
-        memcpy(static_cast<void *>(slot), static_cast<const void *>(buf), n);
-      }
-    }
-  }
-
-private:
-  /** The row's own WEIGHTS cells, or null when it has none / was never
-   * captured. Both loops below are no-ops on a weightless mesh. */
-  mesh::WeightSlot *weightCell(int offset)
-  {
-    return reinterpret_cast<mesh::WeightSlot *>(data_.data() + offset);
-  }
-
-  void retainWeights()
-  {
-    if (!layout_ || !layout_->pool.ptr) {
-      return;
-    }
-    for (int offset : layout_->weight_cells) {
-      layout_->pool.ptr->retain(*weightCell(offset));
-    }
-  }
-
-  void releaseWeights()
-  {
-    if (!layout_ || !layout_->pool.ptr || int(data_.size()) < layout_->total) {
-      return;
-    }
-    for (int offset : layout_->weight_cells) {
-      mesh::WeightSlot *cell = weightCell(offset);
-      layout_->pool.ptr->release(*cell);
-      *cell = mesh::WeightSlot();
-    }
-  }
-
-  /* A null getElemData means an unmaterialized page — e.g. a frozen-topo TOPO
-   * column. MeshLog::undo/redo thaw before replaying topo chunks, so hitting
-   * this is a bug; warn loudly instead of memcpy'ing through null. */
-  static void warnNullPage(const char *where, const mesh::AttrRef &ref)
-  {
-    fprintf(stderr,
-            "meshlog: ChunkElemRow::%s: attr '%s' has an unmaterialized page; "
-            "skipping (mesh frozen during undo?)\n",
-            where,
-            ref.name.c_str());
-  }
-
-  Vector<uint8_t> data_;
-  /* Shared layout this row was captured with; owned by the same chunk. */
-  const RowLayout *layout_ = nullptr;
-};
-
-} // namespace detail
-
-struct LogElem {
-  int log_id;
-  LogElemKind kind;
-  LogOrigin origin;
-  LogFate fate;
-  int begin_mesh_index;
-  int end_mesh_index;
-  detail::ChunkElemRow *begin_body = nullptr;
-  detail::ChunkElemRow *end_body = nullptr;
-};
-
-/**
- * Topological undo/redo chunk — see the file-level header comment for
- * the merged-record design.
- *
- * Records are appended in producer-event order, which is a valid
- * replay order because mesh topology ops fire create/kill events in
- * cascade order (kill_vertex fires the kill events for its incident
- * edges and faces before releasing the vert; make_face fires
- * create events for its corners after the underlying edges/verts
- * already exist).
- */
-
-struct LogChunkTopo : public LogChunk {
-  /* Slab sizes are a memory/allocation trade-off: chunks are per-dab, so an
-   * 8000-slot slab retained ~1.3MB per barely-used chunk (hundreds per dyntopo
-   * stroke) — far past the undo budget without the accounting seeing it. */
-  util::Pool<LogElem, 512> records_pool;
-  util::Pool<detail::ChunkElemRow, 256> bodies_pool;
-
-  /* Shared row layouts, one per (kind, attr-count) seen by this chunk; rows
-   * reference them by pointer, so they live exactly as long as the chunk. A
-   * mid-step attr append changes the count and lazily gets a new layout;
-   * earlier rows keep restoring their own prefix. */
-  litestl::util::Vector<detail::RowLayout *, 8> layouts_;
-  litestl::util::Vector<int, 8> layout_keys_; /* (int(kind) << 16) | count */
-
-  detail::RowLayout *rowLayout(LogElemKind kind, mesh::AttrGroup &grp)
-  {
-    int key = (int(kind) << 16) | int(grp.attrs.size());
-    for (int i = 0; i < int(layout_keys_.size()); i++) {
-      if (layout_keys_[i] == key) {
-        return layouts_[i];
-      }
-    }
-    detail::RowLayout *l = litestl::alloc::New<detail::RowLayout>("meshlog RowLayout");
-    l->build(grp);
-    layout_keys_.append(key);
-    layouts_.append(l);
-    return l;
-  }
-
-  /** key: (uint8_t kind << 32) | uint32_t(mesh_index)  →  log_id */
-
-#ifdef MESHLOG_ABSEIL_HASHMAP
-  absl::flat_hash_map<int64_t, int> idx_to_log_id;
-#else
-  util::Map<int64_t, int64_t> idx_to_log_id;
-#endif
-  util::Map<int, LogElem *> by_log_id;
-  int next_log_id = 0;
-
-  LogChunkTopo() : LogChunk(LogChunkTypes::Topo)
-  {
-  }
-
-  ~LogChunkTopo() override
-  {
-    // Explicit, and before the layouts go: ~ChunkElemRow releases its weight
-    // slots through layout_->pool, and member pools would otherwise be destroyed
-    // after this body — i.e. after the layouts they read.
-    bodies_pool.clear();
-    records_pool.clear();
-
-    for (detail::RowLayout *l : layouts_) {
-      litestl::alloc::Delete(l);
-    }
-  }
-
-  void onCreate(LogElemKind kind, mesh::Mesh *m, int idx)
-  {
-    int64_t key = makeKey(kind, idx);
-
-    // Defensive: stale mapping from a malformed prior sequence.
-    int existing_id;
-    if (lookupId(key, existing_id)) {
-#ifndef MESHLOG_ABSEIL_HASHMAP
-      idx_to_log_id.remove(key);
-#else
-      idx_to_log_id.erase(key);
-#endif
-    }
-
-    LogElem *e = records_pool.alloc();
-    e->log_id = next_log_id++;
-    e->kind = kind;
-    e->origin = LogOrigin::Created;
-    e->fate = LogFate::Live;
-    e->begin_mesh_index = idx;
-    e->end_mesh_index = idx;
-    e->begin_body = nullptr;
-    e->end_body = nullptr;
-
-#ifdef MESHLOG_ABSEIL_HASHMAP
-    idx_to_log_id.emplace(key, e->log_id);
-#else
-    idx_to_log_id.insert(int64_t(key), int(e->log_id));
-#endif
-    by_log_id.insert(int(e->log_id), e);
-  }
-
-  void onChange(LogElemKind kind, mesh::Mesh *m, int idx)
-  {
-    int64_t key = makeKey(kind, idx);
-
-    int existing_id;
-    if (lookupId(key, existing_id)) {
-      // Already a record for this element; nothing to do. Created records
-      // snapshot at finalizeStep; Existed records already snapshotted on
-      // first touch.
-      return;
-    }
-
-    // First touch of a previously-existing element — take begin-snapshot.
-    LogElem *e = records_pool.alloc();
-    e->log_id = next_log_id++;
-    e->kind = kind;
-    e->origin = LogOrigin::Existed;
-    e->fate = LogFate::Live;
-    e->begin_mesh_index = idx;
-    e->end_mesh_index = idx;
-    e->begin_body = bodies_pool.alloc();
-    e->end_body = nullptr;
-    {
-      mesh::AttrGroup &grp = group(m, kind);
-      e->begin_body->captureFrom(rowLayout(kind, grp), grp, idx);
-    }
-
-#ifdef MESHLOG_ABSEIL_HASHMAP
-    idx_to_log_id.emplace(int64_t(key), int(e->log_id));
-#else
-    idx_to_log_id.insert(int64_t(key), int(e->log_id));
-#endif
-
-    by_log_id.insert(int(e->log_id), e);
-  }
-
-  void onKill(LogElemKind kind, mesh::Mesh *m, int idx)
-  {
-    int64_t key = makeKey(kind, idx);
-
-    int existing_id;
-    if (lookupId(key, existing_id)) {
-      LogElem *e = by_log_id.lookup(existing_id);
-
-      if (e->origin == LogOrigin::Created) {
-        // Create+kill within step: net no-op. Drop the record.
-        dropRecord(e);
-#ifdef MESHLOG_ABSEIL_HASHMAP
-        idx_to_log_id.erase(key);
-#else
-        idx_to_log_id.remove(key);
-#endif
-        return;
-      }
-
-      // Existed && now Dead — begin_body already captured.
-      e->fate = LogFate::Dead;
-#ifdef MESHLOG_ABSEIL_HASHMAP
-      idx_to_log_id.erase(key);
-#else
-      idx_to_log_id.remove(key);
-#endif
-      return;
-    }
-
-    // Killed without a prior change — snapshot now.
-    LogElem *e = records_pool.alloc();
-    e->log_id = next_log_id++;
-    e->kind = kind;
-    e->origin = LogOrigin::Existed;
-    e->fate = LogFate::Dead;
-    e->begin_mesh_index = idx;
-    e->end_mesh_index = idx;
-    e->begin_body = bodies_pool.alloc();
-    e->end_body = nullptr;
-    {
-      mesh::AttrGroup &grp = group(m, kind);
-      e->begin_body->captureFrom(rowLayout(kind, grp), grp, idx);
-    }
-
-    by_log_id.insert(int(e->log_id), e);
-    // Do NOT map idx_to_log_id — element is dead.
-  }
-
-  /** Capture end-state for Created && Live records. Called from MeshLog::endStep. */
-  void finalizeStep(mesh::Mesh *m)
-  {
-    for (LogElem &e : records_pool) {
-      if (e.origin == LogOrigin::Created && e.fate == LogFate::Live) {
-        if (!e.end_body) {
-          e.end_body = bodies_pool.alloc();
-        }
-        mesh::AttrGroup &grp = group(m, e.kind);
-        e.end_body->captureFrom(rowLayout(e.kind, grp), grp, e.end_mesh_index);
-      }
-    }
-  }
-
-  /* Refresh Created && Live VERT records' data columns (co/no/…) from the final
-   * post-stroke mesh — see MeshLog::endStep. A vert created in an early dab and
-   * then only brush-deformed (no connectivity touch) by later dabs had that
-   * displacement dropped: the brush gate keeps created verts out of the element
-   * store, and this chunk's end_body froze at its own dab's deactivation.
-   * Connectivity stays frozen (later rewires are owned by later chunks' Existed
-   * records). Dead/reused indices are skipped — their record is killed on redo,
-   * so a refresh would be overwritten anyway. */
-  void refreshCreatedVertData(mesh::Mesh *m)
-  {
-    mesh::AttrGroup &grp = m->v.attrs;
-    for (LogElem &e : records_pool) {
-      if (e.kind != LogElemKind::Vert || e.origin != LogOrigin::Created ||
-          e.fate != LogFate::Live || !e.end_body)
-      {
-        continue;
-      }
-      int idx = e.end_mesh_index;
-      if (idx < 0 || size_t(idx) >= m->v.capacity() || m->v.freemap[idx]) {
-        continue;
-      }
-      e.end_body->refreshDataColumns(grp, idx);
-    }
-  }
-
-  /* Face analogue of refreshCreatedVertData (see MeshLog::endStep). A face split
-   * in from dyntopo in an early dab and then repainted by the poly-group / color
-   * brush in a LATER dab had that face-attr change (poly `group`, …) dropped: the
-   * brush gate keeps created faces out of the element store, and this chunk's
-   * end_body froze at its own dab's deactivation. Refresh the Created-face data
-   * columns (skips TOPO connectivity + NOCOPY temp state) from the final mesh so
-   * redo restores the group the original stroke left. */
-  void refreshCreatedFaceData(mesh::Mesh *m)
-  {
-    mesh::AttrGroup &grp = m->f.attrs;
-    for (LogElem &e : records_pool) {
-      if (e.kind != LogElemKind::Face || e.origin != LogOrigin::Created ||
-          e.fate != LogFate::Live || !e.end_body)
-      {
-        continue;
-      }
-      int idx = e.end_mesh_index;
-      if (idx < 0 || size_t(idx) >= m->f.capacity() || m->f.freemap[idx]) {
-        continue;
-      }
-      e.end_body->refreshDataColumns(grp, idx);
-    }
-  }
-
-  Vector<LogElem *> getSortedRecords()
-  {
-    Vector<LogElem *> records;
-    records.clear();
-
-    // build pre-sorted list of records
-    // note we don't rely on the records_pool ordering
-    records.ensure_capacity(records_pool.live_count());
-    for (LogElem &e : records_pool) {
-      records.append(&e);
-    }
-    records.sort(
-        [](const LogElem *a, const LogElem *b) { return a->log_id - b->log_id; });
-    return records;
-  }
-
-  /* The raw alloc/release/swap replay below bypasses the topology mutators
-   * that keep derived boundary state current: restored elements carry their
-   * persistent flags but no dirty marks, and the TEMP derived layers (UV-chart
-   * edges, per-vert class) sit at defaults. Mark every live replayed vert/edge
-   * boundary-dirty so the executors' lazy recompute re-derives them before the
-   * next feature-aware stroke (dyntopo / bsmooth). O(records). */
-  void markBoundaryDirty(mesh::Mesh *m, const Vector<LogElem *> &records)
-  {
-    for (LogElem *e : records) {
-      const int idx =
-          e->origin == LogOrigin::Created ? e->end_mesh_index : e->begin_mesh_index;
-      if (e->kind == LogElemKind::Vert) {
-        if (idx >= 0 && idx < int(m->v.capacity()) && !m->v.freemap[idx]) {
-          mesh::boundary::markVertDirty(m, idx);
-        }
-      } else if (e->kind == LogElemKind::Edge) {
-        if (idx >= 0 && idx < int(m->e.capacity()) && !m->e.freemap[idx]) {
-          mesh::boundary::markEdgeDirty(m, idx);
-        }
-      }
-    }
-  }
-
-  void undo(mesh::Mesh *m, spatial::SpatialTree *tree) override
-  {
-    Vector<LogElem *> records = getSortedRecords();
-
-    /* The raw alloc/release below bypass make_face/kill_face, so the spatial
-       tree's incremental face ownership (`.spatial.f.node`, a TEMP attr that
-       ChunkElemRow does NOT log) is never updated by the restore itself. Drive
-       the tree's add_face/remove_face here so its leaf face-sets + GPU buffers
-       track the restored mesh; without it undo leaves a stale tree (nothing
-       redrawn). No-op when undoing with no tree (the isolated operator tests). */
-    if (tree) {
-      /* Pre-pass (mesh still in post-step state, so connectivity is valid):
-         drop ownership of faces about to be released or rewired, and of verts
-         about to be released (else their leaf keeps a dangling unique_verts ref
-         — the forward kill path never owned-removed them via callbacks). */
-
-      for (LogElem *e : records) {
-        if (e->origin == LogOrigin::Created && e->fate == LogFate::Live) {
-          if (e->kind == LogElemKind::Face) {
-            tree->flag_face_owner_normals(e->end_mesh_index);
-            tree->remove_face(e->end_mesh_index, true);
-          } else if (e->kind == LogElemKind::Vert)
-            tree->remove_vert(e->end_mesh_index);
-        } else if (e->kind == LogElemKind::Face && e->origin == LogOrigin::Existed &&
-                   e->fate == LogFate::Live)
-        {
-          tree->flag_face_owner_normals(e->begin_mesh_index);
-          tree->remove_face(e->begin_mesh_index, true);
-        } else if (e->kind == LogElemKind::Corner && e->origin == LogOrigin::Existed &&
-                   e->fate == LogFate::Live)
-        {
-          /* Row swap may re-point c.v (fan membership change with no face
-             record); flag the current vert's owner skirt — the post-pass flags
-             the restored side. */
-          tree->flag_vert_skirt(m->c.v[e->begin_mesh_index]);
-        }
-      }
-    }
-
-    // Reverse order: undo dependents before underlying elements.
-    for (int i = records.size() - 1; i >= 0; i--) {
-      LogElem *e = records[i];
-      mesh::ElemData *ed = elemData(m, e->kind);
-      mesh::AttrGroup &grp = ed->attrs;
-
-      if (e->origin == LogOrigin::Created && e->fate == LogFate::Live) {
-        // It exists post-step; release it.
-        ed->release(e->end_mesh_index);
-      } else if (e->origin == LogOrigin::Existed && e->fate == LogFate::Live) {
-        // Swap with live to revert to pre-step state.
-        e->begin_body->swapWith(grp, e->begin_mesh_index);
-      } else if (e->origin == LogOrigin::Existed && e->fate == LogFate::Dead) {
-        // It was killed; bring it back at its original index.
-        ed->alloc(e->begin_mesh_index);
-        e->begin_body->writeTo(grp, e->begin_mesh_index);
-      }
-      // (Created && Dead) records were dropped at kill time.
-    }
-
-    if (tree) {
-      // Post-pass (mesh now fully in pre-step state): re-own faces that came
-      // back or were rewired. add_face re-derives the leaf and flags it for
-      // tris/bounds/GPU regen.
-      for (LogElem *e : records) {
-        if (e->kind == LogElemKind::Corner && e->origin == LogOrigin::Existed &&
-            e->fate == LogFate::Live)
-        {
-          // Restored side of a corner-row swap (see the pre-pass).
-          tree->flag_vert_skirt(m->c.v[e->begin_mesh_index]);
-          continue;
-        }
-        if (e->kind != LogElemKind::Face)
-          continue;
-        if (e->origin == LogOrigin::Existed && e->fate == LogFate::Dead) {
-          tree->add_face(e->begin_mesh_index);
-          tree->flag_face_owner_normals(e->begin_mesh_index);
-        } else if (e->origin == LogOrigin::Existed && e->fate == LogFate::Live) {
-          // double check face is in tree
-          if (tree->treeMesh.f.node[e->begin_mesh_index] == 0) {
-            tree->add_face(e->begin_mesh_index);
-          }
-          tree->flag_face_owner_normals(e->begin_mesh_index);
-        }
-      }
-    }
-
-    markBoundaryDirty(m, records);
-  }
-
-  void redo(mesh::Mesh *m, spatial::SpatialTree *tree) override
-  {
-    Vector<LogElem *> records = getSortedRecords();
-
-    if (tree) {
-      /* Pre-pass (mesh in pre-step state): drop ownership of faces about to be
-         released or rewired, and of verts about to be released — else their
-         leaf keeps a dangling unique_verts ref that an index-reusing recreate
-         would resurrect into a double-owned vert. */
-      for (LogElem *e : records) {
-        if (e->origin != LogOrigin::Existed)
-          continue;
-        if (e->kind == LogElemKind::Face && e->fate == LogFate::Dead) {
-          tree->flag_face_owner_normals(e->begin_mesh_index);
-          tree->remove_face(e->begin_mesh_index, true);
-        } else if (e->kind == LogElemKind::Face && e->fate == LogFate::Live) {
-          if (tree->treeMesh.f.node[e->begin_mesh_index] != 0) {
-            tree->flag_face_owner_normals(e->begin_mesh_index);
-            tree->remove_face(e->begin_mesh_index, true);
-          }
-        } else if (e->kind == LogElemKind::Vert && e->fate == LogFate::Dead) {
-          tree->remove_vert(e->begin_mesh_index);
-        } else if (e->kind == LogElemKind::Corner && e->fate == LogFate::Live) {
-          // Pre-swap side of a corner-row swap (see undo's pre-pass).
-          tree->flag_vert_skirt(m->c.v[e->begin_mesh_index]);
-        }
-      }
-    }
-
-    // Forward order: allocate underlying before dependents reference them.
-    for (int i = 0; i < records.size(); i++) {
-      LogElem *e = records[i];
-      mesh::ElemData *ed = elemData(m, e->kind);
-      mesh::AttrGroup &grp = ed->attrs;
-
-      if (e->origin == LogOrigin::Created && e->fate == LogFate::Live) {
-        // Recreate at the recorded mesh index.
-        ed->alloc(e->end_mesh_index);
-        e->end_body->writeTo(grp, e->end_mesh_index);
-      } else if (e->origin == LogOrigin::Existed && e->fate == LogFate::Live) {
-        // Swap toggle — the body now holds the pre-step state, the live
-        // mesh gets the post-step state back.
-        e->begin_body->swapWith(grp, e->begin_mesh_index);
-      } else if (e->origin == LogOrigin::Existed && e->fate == LogFate::Dead) {
-        // It was killed during the step.
-        ed->release(e->begin_mesh_index);
-      }
-    }
-
-    if (tree) {
-      // Post-pass (mesh in post-step state): re-own recreated/rewired faces.
-      for (LogElem *e : records) {
-        if (e->kind == LogElemKind::Corner && e->origin == LogOrigin::Existed &&
-            e->fate == LogFate::Live)
-        {
-          // Restored (post-step) side of a corner-row swap.
-          tree->flag_vert_skirt(m->c.v[e->begin_mesh_index]);
-          continue;
-        }
-        if (e->kind != LogElemKind::Face)
-          continue;
-        if (e->origin == LogOrigin::Created && e->fate == LogFate::Live) {
-          if (tree->treeMesh.f.node[e->end_mesh_index] == 0) {
-            tree->add_face(e->end_mesh_index);
-          }
-          tree->flag_face_owner_normals(e->end_mesh_index);
-        } else if (e->origin == LogOrigin::Existed && e->fate == LogFate::Live) {
-          if (tree->treeMesh.f.node[e->begin_mesh_index] == 0) {
-            tree->add_face(e->begin_mesh_index);
-          }
-          tree->flag_face_owner_normals(e->begin_mesh_index);
-        }
-      }
-    }
-
-    markBoundaryDirty(m, records);
-  }
-
-  // returns double (not size_t) because the prototype is inferred from
-  // the TS binding side
-  double memSize() override
-  {
-    double tot = double(sizeof(*this));
-    // Slab pools retain full-slab capacity, not just live objects — count it,
-    // or a stroke's chunks blow past the undo budget invisibly.
-    tot += double(records_pool.capacity()) * double(sizeof(LogElem));
-    tot += double(bodies_pool.capacity()) * double(sizeof(detail::ChunkElemRow));
-    for (detail::RowLayout *l : layouts_) {
-      tot += l->memSize();
-    }
-    // Rough per-entry hash-map overhead.
-    tot += double(idx_to_log_id.size() * 3 * 16) + double(by_log_id.size() * 3 * 16);
-
-    // Row heap payloads (the slot itself is already in the capacity term).
-    for (auto &e : bodies_pool) {
-      tot += e.memSize() - double(sizeof(e));
-    }
-
-    return tot;
-  }
-
-  static int64_t makeKey(LogElemKind kind, int idx)
-  {
-    return (int64_t(uint8_t(kind)) << 32) | int64_t(uint32_t(idx));
-  }
-
-  static mesh::ElemData *elemData(mesh::Mesh *m, LogElemKind kind)
-  {
-    switch (kind) {
-    case LogElemKind::Vert:
-      return static_cast<mesh::ElemData *>(&m->v);
-    case LogElemKind::Edge:
-      return static_cast<mesh::ElemData *>(&m->e);
-    case LogElemKind::Corner:
-      return static_cast<mesh::ElemData *>(&m->c);
-    case LogElemKind::List:
-      return static_cast<mesh::ElemData *>(&m->l);
-    case LogElemKind::Face:
-      return static_cast<mesh::ElemData *>(&m->f);
-    }
-    return nullptr;
-  }
-
-  static mesh::AttrGroup &group(mesh::Mesh *m, LogElemKind kind)
-  {
-    return elemData(m, kind)->attrs;
-  }
-
-private:
-  bool lookupId(int64_t key, int &out_id)
-  {
-#ifdef MESHLOG_ABSEIL_HASHMAP
-    auto it = idx_to_log_id.find(key);
-    int *p = nullptr;
-    if (it != idx_to_log_id.end()) {
-      p = &it->second;
-    }
-#else
-    int64_t *p = idx_to_log_id.lookup_ptr(key);
-#endif
-    if (!p) {
-      return false;
-    }
-    out_id = *p;
-    return true;
-  }
-
-  void dropRecord(LogElem *e)
-  {
-    by_log_id.remove(e->log_id);
-    if (e->begin_body) {
-      bodies_pool.release(e->begin_body);
-    }
-    if (e->end_body) {
-      bodies_pool.release(e->end_body);
-    }
-    if (!records_pool.release(e)) {
-      printf("log elem double free!\n");
-    }
-  }
-};
-
-/**
- * Reorder undo/redo chunk — records the five element permutations
- * (map[old] = new). A reorder is a pure bijection, so undo replays the inverse
- * permutation and redo replays the forward one, both via
- * SpatialTree::applyReorderIncremental: it relabels the existing node set in
- * place (no rebuild), so the node set + ids that existed before the reorder are
- * reproduced EXACTLY across undo/redo — simple chunks recorded in earlier steps
- * still resolve their node ids after undoing back across this chunk. (The
- * forward apply that recorded this chunk must likewise be incremental.)
- */
-struct LogChunkReorder : public LogChunk {
-  Vector<int> vmap, emap, cmap, lmap, fmap;
-  /* Scoped (partial) compaction: the per-domain moved (live) slot sets. A scoped
-   * reorder is a closed permutation over these slots, so the set is invariant
-   * under the permutation AND its inverse — undo/redo replay scoped with the same
-   * sets. Empty ⇒ full reorder (whole-mesh map; replay via the full path). */
-  Vector<int> mv, me, mc, ml, mf;
-  /* Scoped chunk: the target slots of the moved sets (vval[i] = map[mv[i]]). The
-   * full map is NOT stored (it is mostly identity) — reconstructed transiently on
-   * undo/redo. This makes the chunk O(moved) instead of O(capacity). */
-  Vector<int> vval, eval, cval, lval, fval;
-  bool scoped = false;
-
-  LogChunkReorder() : LogChunk(LogChunkTypes::Reorder)
-  {
-  }
-
-  LogChunkReorder(Vector<int> vmap_,
-                  Vector<int> emap_,
-                  Vector<int> cmap_,
-                  Vector<int> lmap_,
-                  Vector<int> fmap_)
-      : LogChunk(LogChunkTypes::Reorder), vmap(std::move(vmap_)), emap(std::move(emap_)),
-        cmap(std::move(cmap_)), lmap(std::move(lmap_)), fmap(std::move(fmap_))
-  {
-  }
-
-  void undo(mesh::Mesh *m, spatial::SpatialTree *tree) override
-  {
-    /* Reconstruct the full forward bijection (from sparse moves for a scoped chunk,
-     * or pad the stored full map otherwise), then replay the INVERSE via the full
-     * applyReorderIncremental. Undo/redo are rare, so the full O(mesh) replay is
-     * fine; the scoped forward already paid only O(region). The scoped forward
-     * leaves exactly the state a full apply would, so the full inverse reverts it. */
-    Vector<int> v, e, c, l, f;
-    forwardMaps(m, v, e, c, l, f);
-
-    Vector<int> iv, ie, ic, il, iff;
-    invert(v, iv);
-    invert(e, ie);
-    invert(c, ic);
-    invert(l, il);
-    invert(f, iff);
-    tree->applyReorderIncremental(iv, ie, ic, il, iff);
-  }
-
-  void redo(mesh::Mesh *m, spatial::SpatialTree *tree) override
-  {
-    Vector<int> v, e, c, l, f;
-    forwardMaps(m, v, e, c, l, f);
-    tree->applyReorderIncremental(v, e, c, l, f);
-  }
-
-  double memSize() override
-  {
-    double n =
-        double(vmap.size() + emap.size() + cmap.size() + lmap.size() + fmap.size());
-    n += double(mv.size() + me.size() + mc.size() + ml.size() + mf.size());
-    n += double(vval.size() + eval.size() + cval.size() + lval.size() + fval.size());
-    return double(sizeof(*this)) + n * sizeof(int);
-  }
-
-private:
-  /* Materialize the full forward bijection per domain at the current capacity —
-   * reconstructed from the sparse moves for a scoped chunk, or padded from the
-   * stored full map otherwise. */
-  void forwardMaps(mesh::Mesh *m,
-                   Vector<int> &v,
-                   Vector<int> &e,
-                   Vector<int> &c,
-                   Vector<int> &l,
-                   Vector<int> &f)
-  {
-    if (scoped) {
-      reconstruct(mv, vval, int(m->v.capacity()), v);
-      reconstruct(me, eval, int(m->e.capacity()), e);
-      reconstruct(mc, cval, int(m->c.capacity()), c);
-      reconstruct(ml, lval, int(m->l.capacity()), l);
-      reconstruct(mf, fval, int(m->f.capacity()), f);
-    } else {
-      padToCapacity(vmap, int(m->v.capacity()), v);
-      padToCapacity(emap, int(m->e.capacity()), e);
-      padToCapacity(cmap, int(m->c.capacity()), c);
-      padToCapacity(lmap, int(m->l.capacity()), l);
-      padToCapacity(fmap, int(m->f.capacity()), f);
-    }
-  }
-
-  /* Build a full bijection at @p cap from the sparse move list: identity, then
-   * out[from[i]] = to[i]. (from,to)=(mv,vval) gives the forward map. Slots created
-   * after the reorder are free now and map to themselves, so identity-by-default
-   * is the correct extension. */
-  static void
-  reconstruct(const Vector<int> &from, const Vector<int> &to, int cap, Vector<int> &out)
-  {
-    out.resize(cap);
-    for (int i = 0; i < cap; i++) {
-      out[i] = i;
-    }
-    for (int i = 0; i < int(from.size()); i++) {
-      out[from[i]] = to[i];
-    }
-  }
-
-  /* The map was recorded at the capacity that existed when the reorder ran. Later
-   * steps grow the element arrays and undo doesn't shrink them, so by the time
-   * this chunk is replayed the domain capacity can EXCEED the map. The reorder
-   * only permuted [0, recorded-capacity); the slots created afterward are free now
-   * (their creators are already undone) and map to themselves. Extend with
-   * identity so the permutation is a full bijection over the current capacity. */
-  static void padToCapacity(const Vector<int> &map, int cap, Vector<int> &out)
-  {
-    int n = int(map.size());
-    out.resize(cap);
-    for (int i = 0; i < n && i < cap; i++) {
-      out[i] = map[i];
-    }
-    for (int i = n; i < cap; i++) {
-      out[i] = i;
-    }
-  }
-
-  static void invert(const Vector<int> &map, Vector<int> &out)
-  {
-    out.resize(map.size());
-    for (int i = 0; i < int(map.size()); i++) {
-      out[map[i]] = i;
-    }
-  }
-};
 
 struct MeshLog {
   /** Each field in LogEntry is processed in reverse
@@ -1600,149 +204,46 @@ struct MeshLog {
   }
   Vector<LogEntry> entries;
 
-  MeshLog()
-  {
-    entries.grow_one();
-    curStep_ = 0;
-    installCallbacks();
-  }
+  MeshLog();
   ~MeshLog() = default;
 
   /** Pass to mesh topology ops so they fire into the current topo chunk. */
-  mesh::MeshCallbacks *callbacks()
-  {
-    return &cb_;
-  }
+  mesh::MeshCallbacks *callbacks();
 
   /** Current Mesh* — must be set by the caller before issuing logged ops
    *  so the topo chunk can snapshot pre-kill attributes by index. */
-  void setActiveMesh(mesh::Mesh *m)
-  {
-    if (m != active_mesh_) {
-      /* Stamps index the active mesh's element ids; a mesh switch makes them
-       * meaningless — invalidate wholesale. */
-      chunk_stamp_.bump();
-    }
-    active_mesh_ = m;
-    // Bind the brush's save-gate columns up front (before any dab op fires a
-    // callback) so stampUndoGate never allocs mid-stroke. See stampUndoGate.
-    if (m) {
-      vertGate_.ensure(*m);
-      faceGate_.ensure(*m);
-      cornerGate_.ensure(*m);
-      // Picked up, never created: a mesh with no weights should not grow a pool
-      // because it was logged. Held so totalMemSize can size it after the mesh
-      // itself is gone.
-      deform_pool_.reset(m->deformPoolOrNull());
-    }
-  }
+  void setActiveMesh(mesh::Mesh *m);
 
-  void beginStep(bool hasDyntopo)
-  {
-    if (curStep_ != entries.size()) {
-      // theoretically this should call all the right destructors
-      entries.resize(curStep_);
-    }
-    entries.grow_one();
-    entries.last().id = nextStepId_++;
-    // Snapshot the pre-step active elements; undo/redo swap them back (see
-    // swapActiveElems). Captured here so any setActiveElem during the step is the
-    // post-step value the redo restores.
-    entries.last().snapActiveVert = active_vert_;
-    entries.last().snapActiveEdge = active_edge_;
-    entries.last().snapActiveFace = active_face_;
-    // A stroke pushes exactly one step, so bump the stroke id here. Masked to
-    // 16 bits at read; only equality against the stamp within a step matters,
-    // so the 65536-stroke wrap is harmless (see AttrSaver).
-    strokeId_++;
-    if (hasDyntopo) {
-      pushTopoChunk();
-    }
-  }
+  void beginStep(bool hasDyntopo);
 
   /** Current stroke id, masked to 16 bits (see AttrSaver stamp packing). Starts
    * at 1 so a freshly-stamped 0 element always reads as "not saved yet". */
-  int curStrokeId() const
-  {
-    return strokeId_ & 0xffff;
-  }
+  int curStrokeId() const;
 
   /** Id of the most recently begun step (-1 if none). Call right after
    * beginStep to key this step for stepMemSize/freeStep. */
-  int lastStepId()
-  {
-    return entries.size() > 0 ? entries.last().id : -1;
-  }
+  int lastStepId();
 
-  bool hasOpenStepFor(const mesh::Mesh *mesh, int id) const
-  {
-    return (!active_mesh_ || active_mesh_ == mesh) && curStep_ >= 0 &&
-           curStep_ < entries.size() && entries[curStep_].id == id &&
-           !entries[curStep_].finalized;
-  }
+  bool hasOpenStepFor(const mesh::Mesh *mesh, int id) const;
 
   /** Estimated heap bytes retained by the step with @p id (0 if freed). */
-  double stepMemSize(int id)
-  {
-    for (auto &entry : entries) {
-      if (entry.id == id) {
-        return entry.memSize();
-      }
-    }
-    return 0.0;
-  }
+  double stepMemSize(int id);
 
-  double totalMemSize()
-  {
-    double tot = 0.0;
-    for (auto &entry : entries) {
-      tot += entry.memSize();
-    }
-    return tot + deformPoolMemSize();
-  }
+  double totalMemSize();
 
   /** Deform-pool bytes, counted once here rather than folded into each chunk's
    * elemSize * rows — a WEIGHTS cell is a 4-byte slot index, and the runs behind
    * those indices are one shared table that every step and the mesh index into.
    * The log is what keeps swept-out runs alive, so the bytes belong in the undo
    * budget even though the mesh owns the table. */
-  double deformPoolMemSize()
-  {
-    return deform_pool_.ptr ? double(deform_pool_.ptr->byteSize()) : 0.0;
-  }
+  double deformPoolMemSize();
 
-  int entryCount()
-  {
-    return int(entries.size());
-  }
+  int entryCount();
 
   /** Free the committed step with @p id (undo-memory eviction from the app's
    * tool stack). Only steps strictly behind the cursor are freeable — the
    * current/redo entries stay. Returns 1 if a step was freed. */
-  int freeStep(int id)
-  {
-    int idx = -1;
-    for (int i = 0; i < int(entries.size()); i++) {
-      if (entries[i].id == id) {
-        idx = i;
-        break;
-      }
-    }
-    if (idx < 0 || idx >= curStep_) {
-      return 0;
-    }
-    {
-      // Move the dropped entry out so its dtor frees the chunks, then shift
-      // the tail left (move-assign; raw chunk pointers transfer ownership).
-      LogEntry dropped = std::move(entries[idx]);
-      for (int i = idx; i < int(entries.size()) - 1; i++) {
-        entries[i] = std::move(entries[i + 1]);
-      }
-      entries.pop_back();
-    }
-    curStep_--;
-    return 1;
-  }
+  int freeStep(int id);
 
   /** Capture every topo chunk's end-state from the CURRENT mesh: the active
    * chunk's Created&&Live end_body, plus a data-column refresh of every chunk's
@@ -1751,86 +252,21 @@ struct MeshLog {
    * the live mesh afterwards: end_body holds TOPO connectivity by index, and
    * redo replays the topo chunks into the pre-reorder layout, so a post-reorder
    * capture corrupts the corner cycles (infinite loop in add_face). */
-  void finalizeStroke()
-  {
-    if (curEntry().finalized) {
-      return;
-    }
-    // Only the still-active (last) topo chunk needs finalizing here; earlier
-    // chunks were finalized at deactivation by pushTopoChunk.
-    if (curEntry().topo_chunk_ && active_mesh_) {
-      curEntry().topo_chunk_->finalizeStep(active_mesh_);
-    }
-    /* Created verts from earlier dabs may have been brush-deformed again by
-       later dabs without a connectivity touch; the brush gate kept those
-       displacements out of the element store and each chunk's end_body froze at
-       its own dab. Refresh every topo chunk's Created-vert positions from the
-       final mesh so redo lands exactly where the original stroke did. */
-    if (active_mesh_) {
-      for (LogChunk *chunk : curEntry().chunks) {
-        if (chunk->type == LogChunkTypes::Topo) {
-          static_cast<LogChunkTopo *>(chunk)->refreshCreatedVertData(active_mesh_);
-          static_cast<LogChunkTopo *>(chunk)->refreshCreatedFaceData(active_mesh_);
-        }
-      }
-    }
-    curEntry().topo_chunk_ = nullptr;
-    curEntry().finalized = true;
-  }
+  void finalizeStroke();
 
-  void endStep()
-  {
-    finalizeStroke();
-    curStep_++;
-    trimHistory();
-  }
+  void endStep();
 
   /** Cap the retained undo history to @p n committed steps (-1 = unbounded).
    * Trims immediately so lowering the cap at runtime frees old steps now. */
-  void setMaxUndoSteps(int n)
-  {
-    maxUndoSteps_ = n;
-    trimHistory();
-  }
-  int maxUndoSteps() const
-  {
-    return maxUndoSteps_;
-  }
+  void setMaxUndoSteps(int n);
+  int maxUndoSteps() const;
 
-  bool hasTopoChunk() const
-  {
-    return curEntry().hasTopoChunk;
-  }
+  bool hasTopoChunk() const;
 
-  void pushTopoChunk()
-  {
-    if (curStep_ < 0 || curStep_ >= entries.size()) {
-      fprintf(stderr, "Error: getTopoChunk called with no current undo entry\n");
-      abort();
-    }
-    /* Finalize the outgoing chunk NOW (end of its dab), not at endStep: each
-       chunk must capture its Created records' end-state while it is still the
-       active chunk. Capturing at end-of-step instead would snapshot connectivity
-       a LATER dab rewired (referencing verts a later chunk creates), so per-chunk
-       redo would re-own a face before its verts exist. */
-    if (curEntry().topo_chunk_ && active_mesh_) {
-      curEntry().topo_chunk_->finalizeStep(active_mesh_);
-    }
-    curEntry().topo_chunk_ = litestl::alloc::New<LogChunkTopo>("LogChunkTopo");
-    curEntry().hasTopoChunk = true;
-    curEntry().chunks.append(curEntry().topo_chunk_);
-    bumpChunkStampGen();
-  }
+  void pushTopoChunk();
 
   /** Lazily allocates a topo chunk in the current entry. */
-  LogChunkTopo *getTopoChunk()
-  {
-    if (curEntry().topo_chunk_) {
-      return curEntry().topo_chunk_;
-    }
-    pushTopoChunk();
-    return curEntry().topo_chunk_;
-  }
+  LogChunkTopo *getTopoChunk();
 
   /* ------------- Live-preview mid-step rollback (Anchored / Drag Dot) -------
    * A preview dab is a real applyDab() call issued while the pointer is still
@@ -1866,10 +302,7 @@ struct MeshLog {
   };
   PreviewState preview_;
 
-  bool previewActive() const
-  {
-    return preview_.active;
-  }
+  bool previewActive() const;
 
   /** Commit the pending preview dab: its mesh edits and log chunks stay applied
    * exactly as-is, and the snapshot bookkeeping is simply dropped (no rollback,
@@ -1878,16 +311,7 @@ struct MeshLog {
    * otherwise survive into the next stroke's fresh LogEntry and cause the next
    * stroke's first preview dab to roll back against the wrong entry/snapshot.
    * No-op if no preview is pending. */
-  void commitPreviewDab()
-  {
-    preview_.active = false;
-    preview_.vertIdx.clear();
-    preview_.vertRows.clear();
-    preview_.gatedVert.clear();
-    preview_.gatedFace.clear();
-    preview_.gatedCorner.clear();
-    preview_.seenIdx.clear();
-  }
+  void commitPreviewDab();
 
   /** Snapshot every unseen vertex within `radius` of `center` into the
    * CURRENT preview session (dedup via preview_.seenIdx) — shared by
@@ -1917,40 +341,7 @@ struct MeshLog {
   }
 
   /** Extend the current preview with the executor's evaluated region union. */
-  void capturePreviewNodes(mesh::Mesh *m, std::span<spatial::SpatialNode *> nodes)
-  {
-
-    mesh::AttrGroup &grp = m->v.attrs;
-
-    Vector<mesh::AttrRef> elemRefs;
-    for (mesh::AttrRef &ref : grp.attrs) {
-      if (ref.flag & (mesh::AttrFlag::NOCOPY | mesh::AttrFlag::TOPO)) {
-        continue;
-      }
-      elemRefs.append(ref);
-    }
-    litestl::util::span<const mesh::AttrRef> elemRefSpan(elemRefs.data(),
-                                                         elemRefs.size());
-
-    for (spatial::SpatialNode *node : nodes) {
-      for (int v : node->unique_verts()) {
-        if (v < 0 || size_t(v) >= m->v.capacity() || m->v.freemap[v]) {
-          continue;
-        }
-        if (!preview_.seenIdx.add(v)) {
-          continue;
-        }
-        preview_.vertIdx.append(v);
-        preview_.vertRows.grow_one();
-        preview_.vertRows.last().captureFrom(&preview_.vertLayout, grp, v);
-
-        if (vertGate_.needsData(v, curStrokeId(), 0xffff)) {
-          elemStore(mesh::ElemType::VERTEX)->data.appendFrom(grp, v, elemRefSpan);
-          vertGate_.updateSaved(v, curStrokeId(), 0xffff);
-        }
-      }
-    }
-  }
+  void capturePreviewNodes(mesh::Mesh *m, std::span<spatial::SpatialNode *> nodes);
 
   /** Snapshot every vertex within `radius` of `center` — a generous superset
    * of what one dab at this location can touch — and remember the step's
@@ -1960,43 +351,7 @@ struct MeshLog {
    * the group (the primary dab); each mirror image adds its own region via
    * extendPreviewDab() so the whole group rolls back as one unit. */
   void
-  beginPreviewDab(mesh::Mesh *m, spatial::SpatialTree *tree, float3 center, float radius)
-  {
-    if (!m || !tree) {
-      return;
-    }
-    /* Anchored/Drag Dot calls this BEFORE the tick's applyDab(), which is
-     * normally what binds the vertGate_/faceGate_ .strokeid columns via
-     * setActiveMesh(). capturePreviewRegion() below reads vertGate_ directly,
-     * so bind it here too or the first preview dab of a stroke reads an
-     * unensured builtin attribute column and crashes. Idempotent/cheap when
-     * already bound to this mesh. */
-    setActiveMesh(m);
-    /* pushTopoChunk() (called unconditionally at the end of every applyDab)
-     * always appends a fresh, still-empty chunk for the NEXT dab to reuse —
-     * so if one is already sitting there as topo_chunk_, it's already
-     * counted in chunks.size() even though this preview dab's topology
-     * writes will land inside that very chunk (getTopoChunk() reuses it
-     * rather than appending a new one). Exclude it from the baseline so
-     * rollback's pop loop below undoes it too. */
-    preview_.chunkBaseline = curEntry().chunks.size() - (curEntry().topo_chunk_ ? 1 : 0);
-    preview_.vertIdx.clear();
-    preview_.vertRows.clear();
-    preview_.gatedVert.clear();
-    preview_.gatedFace.clear();
-    preview_.gatedCorner.clear();
-    preview_.seenIdx.clear();
-
-    mesh::AttrGroup &grp = m->v.attrs;
-    // Topology chunks restore connectivity; frozen columns have no readable pages.
-    preview_.vertLayout.build(grp, true);
-
-    capturePreviewRegion(m, tree, center, radius);
-
-    /* Flip active on only now, after the row snapshot above, so stampUndoGate
-     * doesn't mistake this snapshot pass for a preview-dab touch. */
-    preview_.active = true;
-  }
+  beginPreviewDab(mesh::Mesh *m, spatial::SpatialTree *tree, float3 center, float radius);
 
   /** Add another (center, radius) region to the CURRENT preview session
    * without resetting its chunk baseline or snapshot — for symmetry, where
@@ -2007,132 +362,18 @@ struct MeshLog {
    * re-captured mid-group. No-op fallback: if called with no session open
    * (beginPreviewDab wasn't called first), behaves as beginPreviewDab. */
   void
-  extendPreviewDab(mesh::Mesh *m, spatial::SpatialTree *tree, float3 center, float radius)
-  {
-    if (!m || !tree) {
-      return;
-    }
-    if (!preview_.active) {
-      beginPreviewDab(m, tree, center, radius);
-      return;
-    }
-    capturePreviewRegion(m, tree, center, radius);
-  }
+  extendPreviewDab(mesh::Mesh *m, spatial::SpatialTree *tree, float3 center, float radius);
 
   /** Undo the effect of the most recent preview dab: pop and undo every chunk
    * pushed since the paired beginPreviewDab(), then restore the snapshotted
    * vertex rows directly (bypassing the log). No-op if no snapshot is
    * pending. Leaves the step open — this is NOT MeshLog::undo(), which closes
    * a step and moves the history cursor. */
-  void rollbackPreviewDab(mesh::Mesh *m, spatial::SpatialTree *tree)
-  {
-    if (!preview_.active || !m) {
-      preview_.active = false;
-      return;
-    }
-
-    /* The preview dab's own applyDab() just froze topology on the way out
-     * (its normal per-dab bracket); the topo-chunk undo below walks live
-     * TOPO links (disk/radial cycles) via raw alloc/release, same as
-     * MeshLog::undo() -- thaw first or it silently no-ops on unmaterialized
-     * pages (see thawForTopoChunks). */
-    thawForTopoChunks(m);
-
-    /* Only LogChunkTopo chunks belong to this preview dab (see class comment);
-     * a LogChunkElems chunk can land in this same index range when this is the
-     * step's first dab (the step-wide, gated-once-per-stroke capture happens
-     * to fire during it) -- that chunk owns the pre-STEP baseline the real
-     * MeshLog::undo() needs later, and must survive every preview rollback in
-     * this stroke, not just this one. Walk top-down and excise only the Topo
-     * chunks, leaving everything else (and its relative order) untouched. */
-    auto &chunks = curEntry().chunks;
-    for (int i = int(chunks.size()) - 1; i >= int(preview_.chunkBaseline); i--) {
-      LogChunk *c = chunks[i];
-      if (c->type != LogChunkTypes::Topo && c->type != LogChunkTypes::PreparedData) {
-        continue;
-      }
-      c->undo(m, tree);
-      chunks.remove_at(i, false);
-      litestl::alloc::Delete(c);
-    }
-    /* The active topo chunk (if any) was just deleted above; the next touch
-     * lazily allocates a fresh one via getTopoChunk(). Bump the per-chunk
-     * dedup stamps too, since the deleted chunk's recorded elements must be
-     * eligible to record again in whatever chunk comes next. */
-    curEntry().topo_chunk_ = nullptr;
-    bumpChunkStampGen();
-
-    /* The just-deleted chunk(s) stamped vertGate_/faceGate_ (via stampUndoGate)
-     * for every element they topologically touched — that stamp tells the
-     * brush's LogChunkElems capture "a topo chunk already owns this element's
-     * pre-step body, skip me". With the chunk gone, nothing owns it anymore,
-     * so every element stampUndoGate newly gated during this preview dab (as
-     * opposed to the element store's own, non-rolled-back capture, which
-     * stamps the same gate through a different call site) must be un-gated —
-     * see stampUndoGate. */
-    for (int idx : preview_.gatedVert) {
-      if (idx >= 0 && size_t(idx) < m->v.capacity()) {
-        vertGate_.resetElem(idx);
-      }
-    }
-    for (int idx : preview_.gatedFace) {
-      if (idx >= 0 && size_t(idx) < m->f.capacity()) {
-        faceGate_.resetElem(idx);
-      }
-    }
-    for (int idx : preview_.gatedCorner) {
-      if (idx >= 0 && size_t(idx) < m->c.capacity()) {
-        cornerGate_.resetElem(idx);
-      }
-    }
-
-    mesh::AttrGroup &grp = m->v.attrs;
-    for (int i = 0; i < int(preview_.vertIdx.size()); i++) {
-      int idx = preview_.vertIdx[i];
-      if (idx < 0 || size_t(idx) >= m->v.capacity() || m->v.freemap[idx]) {
-        continue;
-      }
-      // ChunkElemRow::writeTo zeroes NOCOPY cells (.spatial.v.node) by contract --
-      // correct for LogChunkTopo recreation (ownership re-derived after), wrong
-      // here since this vert was never recreated. Preserve the live ownership stamp.
-      int savedNode = tree ? tree->treeMesh.v.node[idx] : 0;
-      preview_.vertRows[i].writeTo(grp, idx);
-      if (tree) {
-        tree->treeMesh.v.node[idx] = savedNode;
-        if (savedNode) {
-          using namespace sculptcore::spatial;
-          SpatialNode *node = tree->node_from_id(savedNode);
-          node->update(NodeFlags::Spatial_UpdateGPU | NodeFlags::Spatial_RegenBounds |
-                       NodeFlags::Spatial_UpdateNormals);
-        }
-      }
-    }
-
-    preview_.active = false;
-    preview_.seenIdx.clear();
-  }
+  void rollbackPreviewDab(mesh::Mesh *m, spatial::SpatialTree *tree);
 
   /** Find-or-create the current step's per-domain element store (the
    * append-as-touched undo capture for AttrSaver-gated brush deformation). */
-  LogChunkElems *elemStore(mesh::ElemType domain)
-  {
-    if (curStep_ < 0 || curStep_ >= entries.size()) {
-      fprintf(stderr, "Error: elemStore called with no current undo entry\n");
-      abort();
-    }
-    for (LogChunk *chunk : curEntry().chunks) {
-      if (chunk->type != LogChunkTypes::Elems) {
-        continue;
-      }
-      LogChunkElems *store = static_cast<LogChunkElems *>(chunk);
-      if (store->domain == domain) {
-        return store;
-      }
-    }
-    auto *store = litestl::alloc::New<LogChunkElems>("LogChunkElems", domain);
-    curEntry().chunks.append(store);
-    return store;
-  }
+  LogChunkElems *elemStore(mesh::ElemType domain);
 
   /** Append a reorder chunk capturing the five permutations to the current
    * step. Caller applies the reorder itself (via SpatialTree::applyReorder);
@@ -2141,33 +382,12 @@ struct MeshLog {
                                     Vector<int> emap,
                                     Vector<int> cmap,
                                     Vector<int> lmap,
-                                    Vector<int> fmap)
-  {
-    if (curStep_ < 0 || curStep_ >= entries.size()) {
-      fprintf(stderr, "Error: pushReorderChunk called with no current undo entry\n");
-      abort();
-    }
-    auto *chunk = litestl::alloc::New<LogChunkReorder>("LogChunkReorder",
-                                                       std::move(vmap),
-                                                       std::move(emap),
-                                                       std::move(cmap),
-                                                       std::move(lmap),
-                                                       std::move(fmap));
-    curEntry().chunks.append(chunk);
-    return chunk;
-  }
+                                    Vector<int> fmap);
 
   /** Append a caller-built chunk (LogChunkTypes::External subclasses) to the
    * open step; MeshLog takes ownership and drives it purely through the
    * undo/redo virtuals. Aborts when no step is open (mirrors pushReorderChunk). */
-  void appendChunk(LogChunk *chunk)
-  {
-    if (curStep_ < 0 || curStep_ >= entries.size()) {
-      fprintf(stderr, "Error: appendChunk called with no current undo entry\n");
-      abort();
-    }
-    curEntry().chunks.append(chunk);
-  }
+  void appendChunk(LogChunk *chunk);
 
   /** Atomic reorder step: open a step, record the five permutations, close it.
    * The one sanctioned way for non-brush code (Scene locality reorder) to push
@@ -2176,35 +396,14 @@ struct MeshLog {
                                    Vector<int> emap,
                                    Vector<int> cmap,
                                    Vector<int> lmap,
-                                   Vector<int> fmap)
-  {
-    beginStep(false);
-    auto *chunk = pushReorderChunk(std::move(vmap),
-                                   std::move(emap),
-                                   std::move(cmap),
-                                   std::move(lmap),
-                                   std::move(fmap));
-    endStep();
-    return chunk;
-  }
+                                   Vector<int> fmap);
 
   /** TS-app entry point for the "optimize mesh layout" button: compute locality
    * permutations from the tree, record an undoable reorder step, then apply it.
    * Mirrors debug Scene::reorderForLocality so the app path is fully
    * meshlog-aware. Pushes the maps (copied) before applying, matching the debug
    * ordering. No-op without a tree. */
-  void reorderForLocality(spatial::SpatialTree *tree)
-  {
-    if (!tree) {
-      return;
-    }
-    Vector<int> vmap, emap, cmap, lmap, fmap;
-    tree->computeLocalityMaps(vmap, emap, cmap, lmap, fmap);
-    pushReorderStep(vmap, emap, cmap, lmap, fmap);
-    tree->applyReorderIncremental(vmap, emap, cmap, lmap, fmap);
-    /* Element ids just moved; the recorded-in-chunk stamps are id-keyed. */
-    chunk_stamp_.bump();
-  }
+  void reorderForLocality(spatial::SpatialTree *tree);
 
   /** Stroke-boundary auto-compaction (mechanism B). MUST be called with the
    * stroke's undo step still OPEN (before endStep): if the tree's vert page-
@@ -2216,54 +415,7 @@ struct MeshLog {
    * earlier chunks expect). Returns true if it compacted. Cheap to call every
    * stroke — fragmentationStats is O(elements) and the gate skips the work until
    * churn has actually scattered the layout. */
-  bool compactIfFragmented(spatial::SpatialTree *tree, double vertRatioThreshold = 3.0)
-  {
-    if (!tree || curStep_ < 0 || curStep_ >= entries.size()) {
-      return false;
-    }
-    if (tree->fragmentationStats().vertRatio < vertRatioThreshold) {
-      return false;
-    }
-    /* Scoped (mechanism-B) compaction: relocate only the fragmented region, apply
-     * O(region). The undo chunk stores the map SPARSELY — only the moved slots'
-     * target values (O(moved)), not the full capacity-sized bijection — and
-     * reconstructs it transiently on undo/redo. The scoped forward leaves the exact
-     * mesh + tree state a full apply would (proven by test_partial_matches_full). */
-    Vector<spatial::SpatialNode *> dirty;
-    tree->selectFragmentedLeaves(2.0, dirty);
-    if (dirty.size() == 0) {
-      return false;
-    }
-    Vector<int> vmap, emap, cmap, lmap, fmap;
-    Vector<int> moved[5];
-    tree->computeLocalityMapsPartial(dirty, vmap, emap, cmap, lmap, fmap, moved);
-
-    /* Freeze the stroke's topo chunks NOW, against the pre-reorder mesh, so their
-     * end_body holds pre-reorder connectivity (the redo path replays them before
-     * reorder.redo). endStep's finalize is then a no-op via the `finalized` guard. */
-    finalizeStroke();
-
-    auto *chunk = litestl::alloc::New<LogChunkReorder>("LogChunkReorder");
-    chunk->scoped = true;
-    Vector<int> *maps[5] = {&vmap, &emap, &cmap, &lmap, &fmap};
-    Vector<int> *mvs[5] = {&chunk->mv, &chunk->me, &chunk->mc, &chunk->ml, &chunk->mf};
-    Vector<int> *vals[5] = {
-        &chunk->vval, &chunk->eval, &chunk->cval, &chunk->lval, &chunk->fval};
-    for (int k = 0; k < 5; k++) {
-      *mvs[k] = moved[k]; // moved slots (from)
-      vals[k]->resize(int(moved[k].size()));
-      for (int i = 0; i < int(moved[k].size()); i++) {
-        (*vals[k])[i] = (*maps[k])[moved[k][i]]; // target slots (to)
-      }
-    }
-    curEntry().chunks.append(chunk);
-
-    tree->applyReorderIncremental(
-        vmap, emap, cmap, lmap, fmap, moved[0], moved[1], moved[2], moved[3], moved[4]);
-    /* Element ids just moved; the recorded-in-chunk stamps are id-keyed. */
-    chunk_stamp_.bump();
-    return true;
-  }
+  bool compactIfFragmented(spatial::SpatialTree *tree, double vertRatioThreshold = 3.0);
 
   /* -------------------- Box-modeling topology macro-ops --------------------
    * Each brackets one MeshLog step (so it's one undo press), sets the active
@@ -2278,92 +430,21 @@ struct MeshLog {
    * it before each macro-op (the auto_defrag pattern: flag read TS-side). */
   bool selectFlushPreferOpDomain = true;
 
-  void extrudeRegion(mesh::Mesh *m, util::Vector<float> &outNormal)
-  {
-    if (!m) {
-      return;
-    }
-    setActiveMesh(m);
-    beginStep(false);
-    mesh::ops::ExtrudeResult res;
-    mesh::ops::extrudeRegion(*m, callbacks(), res, selectFlushPreferOpDomain);
-    endStep();
-    outNormal.append(res.normal[0]);
-    outNormal.append(res.normal[1]);
-    outNormal.append(res.normal[2]);
-  }
+  void extrudeRegion(mesh::Mesh *m, util::Vector<float> &outNormal);
 
-  void extrudeIndividual(mesh::Mesh *m, util::Vector<float> &outNormal)
-  {
-    if (!m) {
-      return;
-    }
-    setActiveMesh(m);
-    beginStep(false);
-    mesh::ops::ExtrudeResult res;
-    mesh::ops::extrudeIndividual(*m, callbacks(), res, selectFlushPreferOpDomain);
-    endStep();
-    outNormal.append(res.normal[0]);
-    outNormal.append(res.normal[1]);
-    outNormal.append(res.normal[2]);
-  }
+  void extrudeIndividual(mesh::Mesh *m, util::Vector<float> &outNormal);
 
-  void extrudeWireVerts(mesh::Mesh *m, util::Vector<float> &outNormal)
-  {
-    if (!m) {
-      return;
-    }
-    setActiveMesh(m);
-    beginStep(false);
-    mesh::ops::ExtrudeResult res;
-    mesh::ops::extrudeWireVerts(*m, callbacks(), res, selectFlushPreferOpDomain);
-    endStep();
-    outNormal.append(res.normal[0]);
-    outNormal.append(res.normal[1]);
-    outNormal.append(res.normal[2]);
-  }
+  void extrudeWireVerts(mesh::Mesh *m, util::Vector<float> &outNormal);
 
-  void splitFacesOff(mesh::Mesh *m, util::Vector<float> &outNormal)
-  {
-    if (!m) {
-      return;
-    }
-    setActiveMesh(m);
-    beginStep(false);
-    mesh::ops::ExtrudeResult res;
-    mesh::ops::splitFacesOff(*m, callbacks(), res, selectFlushPreferOpDomain);
-    endStep();
-    outNormal.append(res.normal[0]);
-    outNormal.append(res.normal[1]);
-    outNormal.append(res.normal[2]);
-  }
+  void splitFacesOff(mesh::Mesh *m, util::Vector<float> &outNormal);
 
   /* Subdivide the selected edges (or the selected faces' edges) with `numCuts`
    * cuts each (immediate; self-brackets a step). Outputs the created cut verts. */
-  void subdivideEdges(mesh::Mesh *m, int numCuts, util::Vector<int> &outVerts)
-  {
-    if (!m) {
-      return;
-    }
-    setActiveMesh(m);
-    beginStep(false);
-    mesh::ops::subdivideEdges(
-        *m, callbacks(), numCuts, outVerts, selectFlushPreferOpDomain);
-    endStep();
-  }
+  void subdivideEdges(mesh::Mesh *m, int numCuts, util::Vector<int> &outVerts);
 
   /* Loop-cut the quad strip through `seedEdge` (immediate; self-brackets). Outputs
    * the new loop's midpoint verts (left selected). */
-  void loopCut(mesh::Mesh *m, int seedEdge, util::Vector<int> &outVerts)
-  {
-    if (!m) {
-      return;
-    }
-    setActiveMesh(m);
-    beginStep(false);
-    mesh::ops::loopCut(*m, callbacks(), seedEdge, outVerts);
-    endStep();
-  }
+  void loopCut(mesh::Mesh *m, int seedEdge, util::Vector<int> &outVerts);
 
   /* Loop-cut at a cursor ray: cast against `tree`, seed from the hit face's edge
    * nearest the hit point, then cut. Outputs the new loop's verts (selected). */
@@ -2371,24 +452,7 @@ struct MeshLog {
                     spatial::SpatialTree *tree,
                     const math::float3 &origin,
                     const math::float3 &dir,
-                    util::Vector<int> &outVerts)
-  {
-    if (!m || !tree) {
-      return;
-    }
-    spatial::CastRayIsect isect;
-    if (!tree->castRay(origin, dir, isect) || isect.faceIndex == ELEM_NONE) {
-      return;
-    }
-    int seed = mesh::faceEdgeNearestPoint(*m, isect.faceIndex, isect.p);
-    if (seed == ELEM_NONE) {
-      return;
-    }
-    setActiveMesh(m);
-    beginStep(false);
-    mesh::ops::loopCut(*m, callbacks(), seed, outVerts);
-    endStep();
-  }
+                    util::Vector<int> &outVerts);
 
   /* Build the inset ring (parametric modal). Unlike the extrude wrappers this
    * does NOT bracket the step — the modal op holds one step open across the drag
@@ -2398,30 +462,14 @@ struct MeshLog {
   void insetRegion(mesh::Mesh *m,
                    util::Vector<int> &insetVerts,
                    util::Vector<float> &baseCo,
-                   util::Vector<float> &tangent)
-  {
-    if (!m) {
-      return;
-    }
-    setActiveMesh(m);
-    mesh::ops::insetRegion(
-        *m, callbacks(), insetVerts, baseCo, tangent, selectFlushPreferOpDomain);
-  }
+                   util::Vector<float> &tangent);
 
   /* Bevel the selected verts (parametric modal; does NOT self-bracket, like
    * insetRegion). Outputs the offset verts + base coords + edge tangents. */
   void bevelVerts(mesh::Mesh *m,
                   util::Vector<int> &verts,
                   util::Vector<float> &baseCo,
-                  util::Vector<float> &tangent)
-  {
-    if (!m) {
-      return;
-    }
-    setActiveMesh(m);
-    mesh::ops::bevelVerts(
-        *m, callbacks(), verts, baseCo, tangent, selectFlushPreferOpDomain);
-  }
+                  util::Vector<float> &tangent);
 
   /* -------------------- Box-modeling selection (undoable) --------------------
    * The per-element `select` bool is a normal (non-TOPO, non-NOCOPY) data column,
@@ -2435,167 +483,34 @@ struct MeshLog {
    * reorderForLocality is for the locality reorder. */
 
   /** Open a selection step. Snapshots active elements for undo (see beginStep). */
-  void selectionBeginStep()
-  {
-    beginStep(false);
-  }
+  void selectionBeginStep();
 
   /** Close the current selection step. */
-  void selectionEndStep()
-  {
-    endStep();
-  }
+  void selectionEndStep();
 
-  static LogElemKind selectDomainKind(int domain)
-  {
-    switch (domain) {
-    case 0:
-      return LogElemKind::Vert;
-    case 1:
-      return LogElemKind::Edge;
-    default:
-      return LogElemKind::Face;
-    }
-  }
+  static LogElemKind selectDomainKind(int domain);
 
   /** Snapshot then set one element's select bool. Caller is inside a step. */
-  void selectOne(mesh::Mesh *m, int domain, int idx, bool state)
-  {
-    if (!m || idx < 0) {
-      return;
-    }
-    getTopoChunk()->onChange(selectDomainKind(domain), m, idx);
-    switch (domain) {
-    case 0:
-      m->v.select.set(idx, state);
-      break;
-    case 1:
-      m->e.select.set(idx, state);
-      break;
-    case 2:
-      m->f.select.set(idx, state);
-      break;
-    }
-  }
+  void selectOne(mesh::Mesh *m, int domain, int idx, bool state);
 
   /** Snapshot + set select for a list of element indices (reuses a spatial
    * query's bound out-vector as input). Caller is inside a step. */
-  void selectIndices(mesh::Mesh *m, int domain, util::Vector<int> &indices, int state)
-  {
-    if (!m) {
-      return;
-    }
-    if (m->topo_frozen) {
-      m->thawTopo();
-    }
-    bool s = state != 0;
-    for (int idx : indices) {
-      selectOne(m, domain, idx, s);
-    }
-  }
+  void selectIndices(mesh::Mesh *m, int domain, util::Vector<int> &indices, int state);
 
   /** Snapshot + set select for every live element in `domain`. */
-  void selectAllElems(mesh::Mesh *m, int domain, int state)
-  {
-    if (!m) {
-      return;
-    }
-    if (m->topo_frozen) {
-      m->thawTopo();
-    }
-    bool s = state != 0;
-    switch (domain) {
-    case 0:
-      for (int i : m->v) {
-        selectOne(m, 0, i, s);
-      }
-      break;
-    case 1:
-      for (int i : m->e) {
-        selectOne(m, 1, i, s);
-      }
-      break;
-    case 2:
-      for (int i : m->f) {
-        selectOne(m, 2, i, s);
-      }
-      break;
-    }
-  }
+  void selectAllElems(mesh::Mesh *m, int domain, int state);
 
   /** Select the shortest edge-path from the active vertex to `vEnd`; `vEnd`
    * becomes the new active vertex (the draft's path-select). Returns the number
    * of path verts (0 if unreachable, but active still advances). Inside a step. */
-  int selectShortestPath(mesh::Mesh *m, int vEnd, int state)
-  {
-    if (!m || active_vert_ < 0 || vEnd < 0) {
-      if (m && vEnd >= 0) {
-        active_vert_ = vEnd;
-      }
-      return 0;
-    }
-    util::Vector<int> path;
-    if (!mesh::shortestEdgePath(m, active_vert_, vEnd, path) || path.size() < 2) {
-      active_vert_ = vEnd;
-      return 0;
-    }
-    if (m->topo_frozen) {
-      m->thawTopo();
-    }
-    bool s = state != 0;
-    for (int v : path) {
-      selectOne(m, 0, v, s);
-    }
-    for (int i = 0; i + 1 < int(path.size()); i++) {
-      int e = m->find_edge(path[i], path[i + 1]);
-      if (e != ELEM_NONE) {
-        selectOne(m, 1, e, s);
-      }
-    }
-    active_vert_ = vEnd;
-    return int(path.size());
-  }
+  int selectShortestPath(mesh::Mesh *m, int vEnd, int state);
 
   /** Select the edge loop (kind 0), edge ring (kind 1), or face loop (kind 2)
    * seeded at `seedEdge` (the ctrl / ctrl-shift click select). A select of an
    * already fully-selected loop DESELECTS it instead (loop toggle). Pure
    * selection; caller brackets the step. Returns the element count walked,
    * negated when the toggle deselected. */
-  int selectLoop(mesh::Mesh *m, int seedEdge, int kind, int state)
-  {
-    if (!m || seedEdge < 0) {
-      return 0;
-    }
-    if (m->topo_frozen) {
-      m->thawTopo();
-    }
-    util::Vector<int> elems;
-    int domain = kind == 2 ? 2 : 1;
-    if (kind == 2) {
-      mesh::walkFaceLoop(*m, seedEdge, elems);
-    } else if (kind == 0) {
-      mesh::walkEdgeLoop(*m, seedEdge, elems);
-    } else {
-      mesh::walkEdgeRing(*m, seedEdge, elems);
-    }
-    bool s = state != 0;
-    if (s && elems.size() > 0) {
-      bool all = true;
-      for (int el : elems) {
-        if (!m->elemSelected(domain, el)) {
-          all = false;
-          break;
-        }
-      }
-      if (all) {
-        s = false;
-      }
-    }
-    for (int el : elems) {
-      selectOne(m, domain, el, s);
-    }
-    return s ? int(elems.size()) : -int(elems.size());
-  }
+  int selectLoop(mesh::Mesh *m, int seedEdge, int kind, int state);
 
   /* Select elements from a spatial query's collected face/vert sets, by domain.
    * vert → the collected verts; face → the collected faces; edge → edges whose
@@ -2605,39 +520,7 @@ struct MeshLog {
                       int domain,
                       util::Vector<int> &faces,
                       util::Vector<int> &verts,
-                      bool state)
-  {
-    if (!m) {
-      return;
-    }
-    switch (domain) {
-    case 0:
-      for (int v : verts) {
-        selectOne(m, 0, v, state);
-      }
-      break;
-    case 2:
-      for (int f : faces) {
-        selectOne(m, 2, f, state);
-      }
-      break;
-    case 1: {
-      util::Set<int> vset;
-      for (int v : verts) {
-        vset.add(v);
-      }
-      for (int v : verts) {
-        for (int e : m->e_of_v(v)) {
-          int other = m->e.vs[e][0] == v ? m->e.vs[e][1] : m->e.vs[e][0];
-          if (vset.contains(other)) {
-            selectOne(m, 1, e, state);
-          }
-        }
-      }
-      break;
-    }
-    }
-  }
+                      bool state);
 
   /* Cone (circle/brush) select: run the spatial cone query and select the hits
    * in `domain`. Pick + select happen entirely in C++ so no index array crosses
@@ -2649,18 +532,7 @@ struct MeshLog {
                           float r1,
                           float r2,
                           int domain,
-                          int state)
-  {
-    if (!m || !tree) {
-      return;
-    }
-    if (m->topo_frozen) {
-      m->thawTopo();
-    }
-    util::Vector<int> faces, verts;
-    tree->castScreenCircle(co, ray, r1, r2, faces, verts);
-    selectFromSets(m, domain, faces, verts, state != 0);
-  }
+                          int state);
 
   /* Box select: run the spatial frustum query (8 object-local corners, like
    * SpatialTree::castScreenRect) and select the hits in `domain`. */
@@ -2675,159 +547,44 @@ struct MeshLog {
                         const math::float3 &far2,
                         const math::float3 &far3,
                         int domain,
-                        int state)
-  {
-    if (!m || !tree) {
-      return;
-    }
-    if (m->topo_frozen) {
-      m->thawTopo();
-    }
-    util::Vector<int> faces, verts;
-    tree->castScreenRect(
-        near0, near1, near2, near3, far0, far1, far2, far3, faces, verts);
-    selectFromSets(m, domain, faces, verts, state != 0);
-  }
+                        int state);
 
   /** Set the active element for a domain (0/1/2). Inside a step so it rides undo. */
-  void setActiveElem(int domain, int idx)
-  {
-    switch (domain) {
-    case 0:
-      active_vert_ = idx;
-      break;
-    case 1:
-      active_edge_ = idx;
-      break;
-    case 2:
-      active_face_ = idx;
-      break;
-    }
-  }
+  void setActiveElem(int domain, int idx);
 
-  int activeVert() const
-  {
-    return active_vert_;
-  }
-  int activeEdge() const
-  {
-    return active_edge_;
-  }
-  int activeFace() const
-  {
-    return active_face_;
-  }
+  int activeVert() const;
+  int activeEdge() const;
+  int activeFace() const;
 
-  LogEntry &curEntry()
-  {
-    return entries[curStep_];
-  }
+  LogEntry &curEntry();
 
-  const LogEntry &curEntry() const
-  {
-    return entries[curStep_];
-  }
+  const LogEntry &curEntry() const;
 
-  void undo(mesh::Mesh *m, spatial::SpatialTree *tree)
-  {
-    if (curStep_ <= 0) {
-      return;
-    }
+  void undo(mesh::Mesh *m, spatial::SpatialTree *tree);
 
-    curStep_--;
-
-    if (curStep_ < 0 || curStep_ >= entries.size()) {
-      return;
-    }
-    thawForTopoChunks(m);
-    /* Undo chunks in REVERSE creation order so each element swap operates on the
-       still-post-step topology, where its captured indices are all live. The topo
-       chunk and the brush's LogChunkElems store no longer overlap on dyntopo-moved
-       verts: stampUndoGate excludes them from the element store, leaving the topo
-       chunk the sole, authoritative owner of their pre-step body. */
-    auto &chunks = curEntry().chunks;
-    for (int i = int(chunks.size()) - 1; i >= 0; i--) {
-      chunks[i]->undo(m, tree);
-    }
-    swapActiveElems(curEntry());
-    resyncNgonCount(m, curEntry());
-  }
-
-  void redo(mesh::Mesh *m, spatial::SpatialTree *tree)
-  {
-    if (curStep_ < 0 || curStep_ >= entries.size()) {
-      return;
-    }
-    thawForTopoChunks(m);
-    /* Forward creation order, one chunk fully applied before the next: each topo
-       chunk reproduces its own dab's end-state (captured at deactivation, not
-       end-of-step), so a face rewired across dabs is re-owned only after its
-       dab's chunk recreates the verts it now references. */
-    for (LogChunk *chunk : curEntry().chunks) {
-      chunk->redo(m, tree);
-    }
-    swapActiveElems(curEntry());
-    resyncNgonCount(m, curEntry());
-    curStep_++;
-  }
+  void redo(mesh::Mesh *m, spatial::SpatialTree *tree);
 
 private:
   /* Topo chunks replay faces with raw alloc/release, bypassing make_face /
    * kill_face — the choke points maintaining `Mesh::n_ngon_faces`. Rescan after
    * a topo replay so dyntopo's triangulate-prepass gate stays exact (a stale 0
    * on a restored n-gon mesh silently refuses every subsequent split). */
-  void resyncNgonCount(mesh::Mesh *m, LogEntry &e)
-  {
-    if (!m) {
-      return;
-    }
-    for (LogChunk *chunk : e.chunks) {
-      if (chunk->type == LogChunkTypes::Topo) {
-        m->recountNgons();
-        return;
-      }
-    }
-  }
+  void resyncNgonCount(mesh::Mesh *m, LogEntry &e);
 
   /* Swap the live active elements with this step's snapshot. Symmetric: undo
    * swaps live(post-step)↔snap(pre-step) → live becomes pre-step; redo swaps
    * again → live becomes post-step. */
-  void swapActiveElems(LogEntry &e)
-  {
-    std::swap(active_vert_, e.snapActiveVert);
-    std::swap(active_edge_, e.snapActiveEdge);
-    std::swap(active_face_, e.snapActiveFace);
-  }
+  void swapActiveElems(LogEntry &e);
 
   /* Topo chunks restore elements with raw alloc/release + attr memcpys,
    * bypassing the auto-thawing topology mutators. On a frozen mesh the live
    * TOPO link pages are freed (getElemData == null), so thaw first. */
-  void thawForTopoChunks(mesh::Mesh *m)
-  {
-    if (!m || !m->topo_frozen) {
-      return;
-    }
-    for (LogChunk *chunk : curEntry().chunks) {
-      if (chunk->type == LogChunkTypes::Topo) {
-        m->thawTopo();
-        return;
-      }
-    }
-  }
+  void thawForTopoChunks(mesh::Mesh *m);
 
   /** Drop oldest committed steps until at most maxUndoSteps_ remain. The popped
    * LogEntry is destroyed by value, so ~LogEntry frees its chunks. Stops at
    * curStep_ == 0 so it never discards the current step or pending redo. */
-  void trimHistory()
-  {
-    if (maxUndoSteps_ < 0) {
-      return;
-    }
-    while (int(entries.size()) > maxUndoSteps_ && curStep_ > 0) {
-      entries.pop_front();
-      curStep_--;
-    }
-  }
+  void trimHistory();
 
   /* Stamp the brush's per-element save-gate (`.strokeid.<domain>`) so the brush
    * deform — which runs AFTER dyntopo each dab — treats this element as already
@@ -2838,33 +595,7 @@ private:
    * undo and re-corrupt the element. Only the brush-gated domains (vert co/no,
    * face no) need stamping. Stamp the full flag set so any brush save mask is
    * covered. */
-  void stampUndoGate(LogElemKind kind, int idx)
-  {
-    if (kind == LogElemKind::Vert) {
-      /* Only a topology touch (this call site) newly stamping a previously-
-       * unstamped vertex, while a preview dab is active, needs undoing on
-       * rollback — the element store's OWN capture (a separate call site,
-       * see LogChunkElems) also stamps this same gate but its row is never
-       * rolled back, so it must never be un-stamped. See rollbackPreviewDab. */
-      if (preview_.active && vertGate_.needsData(idx, curStrokeId(), 0xffff)) {
-        preview_.gatedVert.append(idx);
-      }
-      vertGate_.updateSaved(idx, curStrokeId(), 0xffff);
-    } else if (kind == LogElemKind::Face) {
-      if (preview_.active && faceGate_.needsData(idx, curStrokeId(), 0xffff)) {
-        preview_.gatedFace.append(idx);
-      }
-      faceGate_.updateSaved(idx, curStrokeId(), 0xffff);
-    } else if (kind == LogElemKind::Corner) {
-      // Keeps topo-touched corners out of the UV-reprojection element-store
-      // capture: its undo replays after the topo restore and would stomp the
-      // slot's restored pre-stroke corner with a foreign mid-stroke row.
-      if (preview_.active && cornerGate_.needsData(idx, curStrokeId(), 0xffff)) {
-        preview_.gatedCorner.append(idx);
-      }
-      cornerGate_.updateSaved(idx, curStrokeId(), 0xffff);
-    }
-  }
+  void stampUndoGate(LogElemKind kind, int idx);
 
   /* Per-domain generation-stamped element sets (dense read instead of the
    * makeKey/hash lookup). Two tiers below: per-CHUNK ("already recorded in
@@ -2918,68 +649,9 @@ private:
    * mid-undo and hang on mixed-era links (plan 2026-07-13-2046 P2). */
   ElemStampTier chunk_stamp_;
 
-  void bumpChunkStampGen()
-  {
-    chunk_stamp_.bump();
-  }
+  void bumpChunkStampGen();
 
-  void installCallbacks()
-  {
-    auto fwd = [this](LogElemKind kind) {
-      return [this, kind](int idx) {
-        if (!active_mesh_) {
-          return;
-        }
-        /* Fast path: element already recorded by the active chunk — nothing
-         * to capture, and its undo gate was stamped on first touch. */
-        if (chunk_stamp_.hit(kind, idx)) {
-          return;
-        }
-        getTopoChunk()->onChange(kind, active_mesh_, idx);
-        chunk_stamp_.set(kind, idx);
-        stampUndoGate(kind, idx);
-      };
-    };
-    auto fwdCreate = [this](LogElemKind kind) {
-      return [this, kind](int idx) {
-        if (!active_mesh_) {
-          return;
-        }
-        getTopoChunk()->onCreate(kind, active_mesh_, idx);
-        chunk_stamp_.set(kind, idx);
-        stampUndoGate(kind, idx);
-      };
-    };
-    auto fwdKill = [this](LogElemKind kind) {
-      return [this, kind](int idx) {
-        if (!active_mesh_) {
-          return;
-        }
-        getTopoChunk()->onKill(kind, active_mesh_, idx);
-        chunk_stamp_.clear(kind, idx);
-      };
-    };
-
-    cb_.onVertCreate = fwdCreate(LogElemKind::Vert);
-    cb_.onVertChange = fwd(LogElemKind::Vert);
-    cb_.onVertKill = fwdKill(LogElemKind::Vert);
-
-    cb_.onEdgeCreate = fwdCreate(LogElemKind::Edge);
-    cb_.onEdgeChange = fwd(LogElemKind::Edge);
-    cb_.onEdgeKill = fwdKill(LogElemKind::Edge);
-
-    cb_.onCornerCreate = fwdCreate(LogElemKind::Corner);
-    cb_.onCornerChange = fwd(LogElemKind::Corner);
-    cb_.onCornerKill = fwdKill(LogElemKind::Corner);
-
-    cb_.onListCreate = fwdCreate(LogElemKind::List);
-    cb_.onListChange = fwd(LogElemKind::List);
-    cb_.onListKill = fwdKill(LogElemKind::List);
-
-    cb_.onFaceCreate = fwdCreate(LogElemKind::Face);
-    cb_.onFaceChange = fwd(LogElemKind::Face);
-    cb_.onFaceKill = fwdKill(LogElemKind::Face);
-  }
+  void installCallbacks();
 
   int curStep_;
   mesh::MeshCallbacks cb_;

@@ -341,6 +341,14 @@ else()
 	  add_library(sculptcore_node MODULE
 	    source/napi/napi_entry.cc
 	    source/napi/napi_runtime.cc
+	    source/napi/napi_util.cc
+	    source/napi/napi_object_model.cc
+	    source/napi/napi_introspection.cc
+	    source/napi/napi_vector_bridge.cc
+	    source/napi/napi_mesh_vdm.cc
+	    source/napi/napi_spatial_multires.cc
+	    source/napi/napi_debug.cc
+	    source/napi/napi_gpu_brush.cc
 	    ${CMAKE_JS_SRC})
 	  set_target_properties(sculptcore_node PROPERTIES PREFIX "" SUFFIX ".node")
 	  target_include_directories(sculptcore_node PRIVATE ${CMAKE_JS_INC})

@@ -57,7 +57,7 @@ endif()
 sc_add_library(remesh "${SRC}" "${LIB}" STATIC)
 
 # Global quad-remesh op, exposed like Mesh_triangulate. Hand-wrapped natively in
-# source/napi/napi_runtime.cc; this list wires the WASM export.
+# source/napi/napi_mesh_vdm.cc; this list wires the WASM export.
 wasm_add_symbols("
   Mesh_quadRemesh
   "

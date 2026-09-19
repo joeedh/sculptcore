@@ -71,4 +71,6 @@ void Brush::setNamedBool(int slot, bool value)
   reportNamedWrite(setNamedScalar(props::Prop::BOOL, slot, value), slot);
 }
 
+  /** Describe native member storage and semantic dynamics eligibility. */
+
 } // namespace sculptcore::brush

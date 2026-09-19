@@ -14,6 +14,9 @@ set(SRC
   PUBLIC semantic_scalars.h
   semantic_scalars.cc
   PUBLIC brush.h
+  PUBLIC brush_types.h
+  brush_falloff.cc
+  brush_texture.cc
   PUBLIC brush_preparation.h
   PUBLIC prepared_cavity.h
   brush_preparation.cc
@@ -60,7 +63,13 @@ set(SRC
   PUBLIC brush_hooks.h
   brush_hooks.cc
   brush_executor.h
+  PUBLIC brush_executor_templates.inl
+  PUBLIC brush_metadata.h
   brush_executor.cc
+  brush_executor_uniforms.cc
+  brush_executor_preview.cc
+  brush_executor_grab.cc
+  brush_executor_lifecycle.cc
   brush.cc
   PUBLIC brush_configuration.h
   brush_configuration.cc

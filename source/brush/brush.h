@@ -17,141 +17,10 @@
 #include "props.h"
 #include "texture_program.h"
 
-namespace sculptcore::brush {
-
-// Falloff curve shapes selectable per brush. The three analytic kinds
-// inline a closed form; `Curve` reads `Brush::falloff_curve` as a
-// 256-entry LUT with linear interpolation. `t` is the normalized 0..1
-// centerwise input â€” 1 at the brush center, 0 at the radius. Smoothstep
-// is the historical default and keeps regression dumps bit-identical
-// when no `set_falloff` runs.
-enum class FalloffKind : unsigned char {
-  Smoothstep = 0,
-  Linear = 1,
-  Gaussian = 2,
-  Curve = 3,
-};
-
-// Spatial metric mapping a vertex offset from the brush center to the
-// normalized 0..1 distance fed into the falloff curve. This is the DSL
-// plan's `Falloff` tagged-union discriminant, orthogonal to the curve
-// shape (`FalloffKind`):
-//   Spherical â€” euclidean radius (historical default, bit-identical).
-//   Cube      â€” max(|dx|,|dy|,|dz|), the legacy SQUARE-brush metric.
-//   Linear    â€” distance projected onto `falloff_dir` (stroke-line falloff).
-//   Box       â€” oriented cuboid: max-norm in an orthonormal frame built from
-//               `falloff_dir` (primary axis = stroke direction), with
-//               independent per-axis half-extents in `falloff_extent`.
-enum class FalloffShape : unsigned char {
-  Spherical = 0,
-  Cube = 1,
-  Linear = 2,
-  Box = 3,
-};
-} // namespace sculptcore::brush
-
-namespace litestl::binding {
-template <> struct Binder<sculptcore::brush::FalloffKind> {
-  static const BindingBase *bind();
-};
-template <> struct Binder<sculptcore::brush::FalloffShape> {
-  static const BindingBase *bind();
-};
-} // namespace litestl::binding
-
-namespace sculptcore::brush {
-using litestl::math::float3;
-using litestl::math::float4;
-using litestl::util::StrLiteral;
-
-// Mapping from a world-space sample point to brush-texture UV. Orthogonal
-// to the texture data itself; the discriminant rides in BrushUniforms so
-// the WGSL `brush_sample_tex` mirrors the same branches.
-//   Global     â€” uv = co.xy (world plane; stroke-independent, the test mode).
-//   ViewPlane  â€” perspective-project co through renderMatrix (world -> clip),
-//                NDC remapped to [0,1] across the viewport (screen-pinned).
-//   ViewRepeat â€” ViewPlane scaled by `tex_repeat` (tiled across the view).
-//   StrokeCurved â€” uv = (arc length along the stroke, lateral offset from it);
-//                  reads the StrokePath ring buffer of recent dab centers.
-//   Projected  â€” project (co - surfacePos) onto the brush-center tangent plane;
-//                uv = its coordinates in a deterministic orthonormal basis built
-//                from surfaceNo, normalized so the tile spans the brush circle
-//                (centered on the dab, 0..1 across the diameter). The one mode
-//                that actually consumes the surface normal arg threaded through
-//                sampleBrushTex.
-enum class TexCoordSpace : unsigned char {
-  Global = 0,
-  ViewPlane = 1,
-  ViewRepeat = 2,
-  StrokeCurved = 3,
-  Projected = 4,
-};
-} // namespace sculptcore::brush
-
-namespace litestl::binding {
-template <> struct Binder<sculptcore::brush::TexCoordSpace> {
-  static const BindingBase *bind();
-};
-} // namespace litestl::binding
+#include "brush_types.h"
 
 namespace sculptcore::brush {
 
-inline constexpr int kFalloffCurveSize = 256;
-
-// One recorded stroke-dab center for the StrokePath ring buffer. `arclen` is
-// the cumulative world-space distance from the first sample to this one, so a
-// projection onto the polyline yields a monotonic curvilinear coordinate.
-struct StrokeSample {
-  float3 pos{0, 0, 0};
-  float3 normal{0, 0, 1};
-  float arclen = 0.0f;
-};
-
-// Capacity of the per-stroke StrokePath ring buffer. STROKE_CURVED projects
-// onto at most this many recent dab centers; 64 covers a long stroke at the
-// default spacing without an allocation. Mirrored as the WGSL storage-buffer
-// length bound by the (future) dispatcher.
-inline constexpr int kStrokePathMax = 64;
-
-// View-normal automask defaults (radians): fade to nothing at 90Â° off head-on,
-// over a 25Â° ramp â€” so full strength holds until 65Â°. Live here rather than in
-// automask.h so brush.h needn't pull mesh.h in; automask.h reads them back.
-inline constexpr float kViewNormalLimitDefault = 1.5707964f;
-inline constexpr float kViewNormalFalloffDefault = 0.43633232f;
-
-// Stable small ids for the common scalar props the bridge configures across the TS
-// boundary. Used instead of `util::string` prop-name args: the TS binding
-// runtime can't marshal a JS string into a bound `util::string` parameter
-// (no String copy-ctor / cstring path â€” it expects a pre-built String handle).
-// The C++ side maps the id back to the prop name (string literals never cross
-// the boundary). Mirror in sculptcore_bindings.ts (`BrushProp`).
-enum class BrushProp : int {
-  Strength = 0,
-  Radius = 1,
-  Autosmooth = 2,
-  Planeoff = 3,
-  Spacing = 4,
-  Invert = 5,
-};
-inline const char *brushPropName(int propId)
-{
-  switch (propId) {
-  case 0:
-    return "strength";
-  case 1:
-    return "radius";
-  case 2:
-    return "autosmooth";
-  case 3:
-    return "planeoff";
-  case 4:
-    return "spacing";
-  case 5:
-    return "invert";
-  default:
-    return "";
-  }
-}
 
 struct Brush;
 struct BrushMemberDescriptor {
@@ -534,145 +403,7 @@ struct Brush {
     }
   }
 
-  static litestl::binding::types::Struct<Brush> *defineBindings()
-  {
-    using namespace litestl::binding;
-    types::Struct<Brush> *st =
-        new types::Struct<Brush>("sculptcore::brush::Brush", sizeof(Brush));
-
-    BIND_STRUCT_DEFAULT_CONSTRUCTOR(st);
-
-    BIND_STRUCT_MEMBER(st, falloffCurveSize);
-    BIND_STRUCT_MEMBER(st, falloff_shape);
-    BIND_STRUCT_MEMBER(st, falloff_kind);
-    BIND_STRUCT_MEMBER(st, strength);
-    BIND_STRUCT_MEMBER(st, radius);
-    BIND_STRUCT_MEMBER(st, spacing);
-    BIND_STRUCT_MEMBER(st, planeoff);
-    BIND_STRUCT_MEMBER(st, autosmooth);
-    BIND_STRUCT_MEMBER(st, invert);
-    BIND_STRUCT_MEMBER(st, mu);
-    BIND_STRUCT_MEMBER(st, nu);
-    BIND_STRUCT_MEMBER(st, unboundedExtent);
-    BIND_STRUCT_MEMBER(st, pinch);
-    BIND_STRUCT_MEMBER(st, projection);
-    BIND_STRUCT_MEMBER(st, rake);
-    BIND_STRUCT_MEMBER(st, reproject_uvs);
-    BIND_STRUCT_MEMBER(st, automask_cavity);
-    BIND_STRUCT_MEMBER(st, cavity_factor);
-    BIND_STRUCT_MEMBER(st, cavity_blur_steps);
-    BIND_STRUCT_MEMBER(st, cavity_inverted);
-    BIND_STRUCT_MEMBER(st, cavity_use_curve);
-    BIND_STRUCT_MEMBER(st, cavityCurveSize);
-    BIND_STRUCT_MEMBER(st, automask_view_normal);
-    BIND_STRUCT_MEMBER(st, cull_backfaces);
-    BIND_STRUCT_MEMBER(st, view_normal_limit);
-    BIND_STRUCT_MEMBER(st, view_normal_falloff);
-    BIND_STRUCT_MEMBER(st, viewDir);
-    BIND_STRUCT_MEMBER(st, enhance_rings);
-    BIND_STRUCT_MEMBER(st, enhance_inner);
-    BIND_STRUCT_MEMBER(st, grabFrom);
-    BIND_STRUCT_MEMBER(st, grabTo);
-    BIND_STRUCT_MEMBER(st, falloff_dir);
-    BIND_STRUCT_MEMBER(st, falloff_extent);
-    BIND_STRUCT_MEMBER(st, planeSide);
-    BIND_STRUCT_MEMBER(st, strokeDir);
-    BIND_STRUCT_MEMBER(st, strokeDirHostSet);
-    BIND_STRUCT_MEMBER(st, wingAngle);
-    BIND_STRUCT_MEMBER(st, wingNormalA);
-    BIND_STRUCT_MEMBER(st, wingNormalB);
-    BIND_STRUCT_MEMBER(st, activeGroup);
-    BIND_STRUCT_MEMBER(st, brushColor);
-    BIND_STRUCT_MEMBER(st, mixMode);
-    BIND_STRUCT_MEMBER(st, tex_width);
-    BIND_STRUCT_MEMBER(st, tex_height);
-    BIND_STRUCT_MEMBER(st, coord_space);
-    BIND_STRUCT_MEMBER(st, tex_repeat);
-    BIND_STRUCT_MEMBER(st, props);
-    BIND_STRUCT_METHOD(st, setNamedFloat, MARGS("slot", "value"));
-    BIND_STRUCT_METHOD(st, getNamedFloat, MARGS("slot"));
-    BIND_STRUCT_METHOD(st, setFalloffCurveEntry, MARGS("i", "f"));
-    BIND_STRUCT_METHOD(st, setCavityCurveEntry, MARGS("i", "f"));
-    BIND_STRUCT_METHOD(st, replaceFalloffCurveChecked, MARGS("samples"));
-    BIND_STRUCT_METHOD(st, replaceCavityCurveChecked, MARGS("samples"));
-    BIND_STRUCT_METHOD(st, setTexture, MARGS("width", "height", "pixels"));
-    BIND_STRUCT_METHOD(st, clearTexture, MARGS());
-    BIND_STRUCT_MEMBER(st, texture_script_error);
-    BIND_STRUCT_METHOD(st, setTextureScript, MARGS("source"));
-    BIND_STRUCT_METHOD(st, clearTextureScript, MARGS());
-    BIND_STRUCT_METHOD(st, textureParamCount, MARGS());
-    BIND_STRUCT_METHOD(st, queriedTextureParamEntry, MARGS("i"));
-    BIND_STRUCT_METHOD(st, setTextureParamAt, MARGS("i", "value"));
-    BIND_STRUCT_METHOD(st, setTextureRampAt, MARGS("i", "lut"));
-    BIND_STRUCT_METHOD(st, evalTextureAt, MARGS("px", "py", "pz", "nx", "ny", "nz"));
-    BIND_STRUCT_METHOD(st, textureUsesMap, MARGS());
-    BIND_STRUCT_METHOD(st, loadProps, MARGS());
-    BIND_STRUCT_METHOD(st, writeProps, MARGS());
-    BIND_STRUCT_METHOD(st, writeDabProps, MARGS());
-    BIND_STRUCT_METHOD(st, pushDeviceInput, MARGS("type", "value"));
-    BIND_STRUCT_METHOD(st, clearDeviceInputs, MARGS());
-    BIND_STRUCT_METHOD(st, clearPropDynamics, MARGS("propId"));
-    BIND_STRUCT_METHOD(
-        st, addPropDynamic, MARGS("propId", "deviceType", "mixMode", "mixFactor"));
-    BIND_STRUCT_METHOD(
-        st, setPropDynamicSample, MARGS("propId", "deviceType", "i", "n", "value"));
-    // Name-keyed dynamics for any registered float uniform (custom kernel
-    // uniforms the BrushProp ids can't reach). The bridge enumerates the
-    // uniform manifest and routes its configure calls through these.
-    BIND_STRUCT_METHOD(st, clearPropDynamicsByName, MARGS("name"));
-    BIND_STRUCT_METHOD(
-        st, addPropDynamicByName, MARGS("name", "deviceType", "mixMode", "mixFactor"));
-    BIND_STRUCT_METHOD(
-        st, setPropDynamicSampleByName, MARGS("name", "deviceType", "i", "n", "value"));
-    BIND_STRUCT_METHOD(st, setPropsParent, MARGS("parentProps"));
-    BIND_STRUCT_METHOD(st, clearPropsParent, MARGS());
-    BIND_STRUCT_METHOD(st,
-                       replaceCommonResponseDynamicsChecked,
-                       MARGS("propId",
-                             "scalarType",
-                             "devices",
-                             "modes",
-                             "factors",
-                             "enabled",
-                             "offsets",
-                             "samples",
-                             "kinds",
-                             "parameters"));
-    BIND_STRUCT_METHOD(st, configurationGeneration, MARGS());
-    BIND_STRUCT_METHOD(
-        st, readCommonScalarChecked, MARGS("propId", "scalarType", "evaluate"));
-    BIND_STRUCT_METHOD(
-        st, writeCommonScalarChecked, MARGS("propId", "scalarType", "value"));
-    BIND_STRUCT_METHOD(st,
-                       configureCommonDynamicChecked,
-                       MARGS("propId", "scalarType", "device", "mode", "factor"));
-    BIND_STRUCT_METHOD(st,
-                       enableCommonDynamicChecked,
-                       MARGS("propId", "scalarType", "device", "enabled"));
-    BIND_STRUCT_METHOD(
-        st, moveCommonDynamicChecked, MARGS("propId", "scalarType", "device", "index"));
-    BIND_STRUCT_METHOD(st, clearCommonDynamicsChecked, MARGS("propId", "scalarType"));
-    BIND_STRUCT_METHOD(st,
-                       replaceCommonDynamicTableChecked,
-                       MARGS("propId", "scalarType", "device", "samples"));
-    BIND_STRUCT_METHOD(
-        st,
-        setCommonDynamicSampleChecked,
-        MARGS("propId", "scalarType", "device", "index", "count", "value"));
-    BIND_STRUCT_METHOD(st,
-                       replaceCommonDynamicsChecked,
-                       MARGS("propId",
-                             "scalarType",
-                             "devices",
-                             "modes",
-                             "factors",
-                             "enabled",
-                             "offsets",
-                             "samples"));
-
-    return st;
-  }
-
+  static litestl::binding::types::Struct<Brush> *defineBindings();
   // --- Property inheritance (Stage 4, bounded) ---------------------------
   // Link this brush's props to a parent default (e.g. a category-default
   // Brush's `props`) so any property this brush does not define locally
@@ -950,67 +681,13 @@ struct Brush {
   // Feeds the curve via `t = 1 - dist` inside support. WGSL mirrors this in
   // `brush_falloff_dist`; changing one without the other breaks the
   // CPU/GPU bit-equality contract.
-  float falloffDist(float3 delta, float3 surfaceNo) const
-  {
-    float inv_r = 1.0f / radius;
-    switch (falloff_shape) {
-    case FalloffShape::Spherical:
-      return delta.length() * inv_r;
-    case FalloffShape::Cube: {
-      float ax = std::fabs(delta[0]);
-      float ay = std::fabs(delta[1]);
-      float az = std::fabs(delta[2]);
-      float m = ax > ay ? ax : ay;
-      m = m > az ? m : az;
-      return m * inv_r;
-    }
-    case FalloffShape::Linear:
-      return std::fabs(delta.dot(falloff_dir)) * inv_r;
-    case FalloffShape::Box: {
-      // Stroke-aligned oriented cuboid: axis 0 = stroke tangent (`falloff_dir`)
-      // projected into the surface tangent plane, axis 1 = in-plane
-      // perpendicular, axis 2 = surface normal; extents from `falloff_extent`.
-      float3 n = surfaceNo.normalized();
-      float3 tang = falloff_dir - n * falloff_dir.dot(n);
-      float tl = tang.length();
-      if (tl < 1e-6f) {
-        // Stroke ~parallel to the normal: pick any in-plane axis.
-        float3 ref =
-            std::abs(n[2]) < 0.999f ? float3{0.0f, 0.0f, 1.0f} : float3{1.0f, 0.0f, 0.0f};
-        tang = ref.cross(n);
-        tl = tang.length();
-      }
-      tang = tang / tl;
-      float3 lat = n.cross(tang);
-      float dn = std::fabs(delta.dot(tang)) / falloff_extent[0];
-      float d1 = std::fabs(delta.dot(lat)) / falloff_extent[1];
-      float d2 = std::fabs(delta.dot(n)) / falloff_extent[2];
-      float m = dn > d1 ? dn : d1;
-      m = m > d2 ? m : d2;
-      return m * inv_r;
-    }
-    }
-    return delta.length() * inv_r;
-  }
+  float falloffDist(float3 delta, float3 surfaceNo) const;
 
   /** Finite enclosing sphere for ordinary brush falloff support. */
-  float falloffSupportRadius(float r) const
-  {
-    if (falloff_shape == FalloffShape::Cube)
-      return float(double(r) * std::sqrt(3.0));
-    if (falloff_shape == FalloffShape::Box)
-      return float(double(r) * std::hypot(double(falloff_extent[0]),
-                                          double(falloff_extent[1]),
-                                          double(falloff_extent[2])));
-    return r;
-  }
+  float falloffSupportRadius(float r) const;
 
   /** Linear falloff varies along one axis but remains within the brush sphere. */
-  bool insideFalloff(float3 delta, float3 surfaceNo) const
-  {
-    return radius > 0 && falloffDist(delta, surfaceNo) <= 1.0f &&
-           (falloff_shape != FalloffShape::Linear || delta.length() <= radius);
-  }
+  bool insideFalloff(float3 delta, float3 surfaceNo) const;
 
   // Evaluate the active falloff curve at normalized centerwise `t`
   // (1 at center, 0 at radius). Source of truth for the C++ side; the
@@ -1019,88 +696,20 @@ struct Brush {
   // the edge; strength() clips outside support. The Curve branch does
   // clamped linear interpolation over `falloff_curve` â€” N-1 segments,
   // index N-1 read directly when t lands exactly at 1.
-  float falloffEval(float t) const
-  {
-    switch (falloff_kind) {
-    case FalloffKind::Smoothstep:
-      return t * t * (3.0f - 2.0f * t);
-    case FalloffKind::Linear:
-      return t;
-    case FalloffKind::Gaussian: {
-      float u = 1.0f - t;
-      return std::exp(-9.0f * u * u);
-    }
-    case FalloffKind::Curve: {
-      float clamped = t < 0.0f ? 0.0f : (t > 1.0f ? 1.0f : t);
-      float scaled = clamped * (float)(kFalloffCurveSize - 1);
-      int i0 = (int)scaled;
-      if (i0 >= kFalloffCurveSize - 1)
-        return falloff_curve[kFalloffCurveSize - 1];
-      float frac = scaled - (float)i0;
-      return falloff_curve[i0] * (1.0f - frac) + falloff_curve[i0 + 1] * frac;
-    }
-    }
-    return t;
-  }
+  float falloffEval(float t) const;
 
   // Bilinear sample of the brush texture at UV `uv` (clamped to edge).
   // Returns 1.0 when no texture is bound so callers can multiply
   // unconditionally. WGSL mirrors this with a clamped textureSampleLevel;
   // the float math here is the CPU source of truth.
-  float sampleTexBilinear(litestl::math::float2 uv) const
-  {
-    if (tex_width <= 0 || tex_height <= 0 || tex_pixels.size() == 0) {
-      return 1.0f;
-    }
-
-    // Texel-space coords with half-texel offset; clamp to edge.
-    float fx = uv[0] * (float)tex_width - 0.5f;
-    float fy = uv[1] * (float)tex_height - 0.5f;
-
-    int x0 = (int)std::floor(fx);
-    int y0 = (int)std::floor(fy);
-    float tx = fx - (float)x0;
-    float ty = fy - (float)y0;
-
-    auto clampi = [](int v, int lo, int hi) { return v < lo ? lo : (v > hi ? hi : v); };
-    int x0c = clampi(x0, 0, tex_width - 1);
-    int y0c = clampi(y0, 0, tex_height - 1);
-    int x1c = clampi(x0 + 1, 0, tex_width - 1);
-    int y1c = clampi(y0 + 1, 0, tex_height - 1);
-
-    float p00 = tex_pixels[y0c * tex_width + x0c];
-    float p10 = tex_pixels[y0c * tex_width + x1c];
-    float p01 = tex_pixels[y1c * tex_width + x0c];
-    float p11 = tex_pixels[y1c * tex_width + x1c];
-
-    float a = p00 * (1.0f - tx) + p10 * tx;
-    float b = p01 * (1.0f - tx) + p11 * tx;
-    return a * (1.0f - ty) + b * ty;
-  }
+  float sampleTexBilinear(litestl::math::float2 uv) const;
 
   // Bind a grayscale brush texture (row-major `width * height` floats,
   // copied). The marshal-safe bridge seam: bound Vector args cross the
   // boundary, flat pixel pointers don't. Bad dims or a size mismatch clears.
-  void setTexture(int width, int height, litestl::util::Vector<float> &pixels)
-  {
-    if (width <= 0 || height <= 0 || pixels.size() != size_t(width) * size_t(height)) {
-      clearTexture();
-      return;
-    }
-    tex_width = width;
-    tex_height = height;
-    tex_pixels.clear();
-    for (float p : pixels) {
-      tex_pixels.append(p);
-    }
-  }
+  void setTexture(int width, int height, litestl::util::Vector<float> &pixels);
 
-  void clearTexture()
-  {
-    tex_width = 0;
-    tex_height = 0;
-    tex_pixels.clear();
-  }
+  void clearTexture();
 
   /** Compile `source` as a texture script and bind the program (replacing any
    * prior one). On failure the brush is left with no program and the message
@@ -1108,84 +717,25 @@ struct Brush {
    * compiled code â€” to change one, edit the source and rebind (milliseconds
    * under tcc); the param setters below refuse them. */
   bool setTextureScriptSource(litestl::util::stringref source,
-                              litestl::util::stringref filename)
-  {
-    clearTextureScript();
-    TextureProgram *p = compileTextureScript(source, filename, texture_script_error);
-    if (!p) {
-      return false;
-    }
-    texture_program = p;
-    for (float f : p->defaults) {
-      texture_params.append(f);
-    }
-    return true;
-  }
+                              litestl::util::stringref filename);
 
   // Marshal-safe wrapper: the binding runtime can't pass a host string into a
   // util::string arg (see BrushProp), so script source crosses as a char
   // Vector. NUL-terminated locally â€” stringref has no (ptr, size) ctor.
-  bool setTextureScript(litestl::util::Vector<char> &source)
-  {
-    litestl::util::Vector<char> buf;
-    for (char c : source) {
-      buf.append(c);
-    }
-    buf.append('\0');
-    return setTextureScriptSource(buf.data(), "<script>");
-  }
+  bool setTextureScript(litestl::util::Vector<char> &source);
 
-  void clearTextureScript()
-  {
-    if (texture_program) {
-      freeTextureProgram(texture_program);
-      texture_program = nullptr;
-    }
-    texture_params.clear();
-    texture_script_error = litestl::util::string("");
-  }
+  void clearTextureScript();
 
-  int textureParamCount()
-  {
-    return texture_program ? (int)texture_program->params.size() : 0;
-  }
+  int textureParamCount();
 
-  TextureProgramParam *queriedTextureParamEntry(int i)
-  {
-    if (!texture_program || i < 0 || i >= (int)texture_program->params.size()) {
-      return nullptr;
-    }
-    return &texture_program->params[i];
-  }
+  TextureProgramParam *queriedTextureParamEntry(int i);
 
   // Set a scalar param by manifest index, clamped to its @range. False for
   // ramps, @const params, or an unbound/invalid index.
-  bool setTextureParamAt(int i, float value)
-  {
-    TextureProgramParam *p = queriedTextureParamEntry(i);
-    if (!p || p->isRamp || p->isConst || p->offset < 0) {
-      return false;
-    }
-    if (p->hasRange) {
-      value =
-          value < p->rangeMin ? p->rangeMin : (value > p->rangeMax ? p->rangeMax : value);
-    }
-    texture_params[p->offset] = value;
-    return true;
-  }
+  bool setTextureParamAt(int i, float value);
 
   // Overwrite a ramp param's LUT â€” exactly kTexRampSize samples.
-  bool setTextureRampAt(int i, litestl::util::Vector<float> &lut)
-  {
-    TextureProgramParam *p = queriedTextureParamEntry(i);
-    if (!p || !p->isRamp || p->offset < 0 || (int)lut.size() != kTexRampSize) {
-      return false;
-    }
-    for (int k = 0; k < kTexRampSize; k++) {
-      texture_params[p->offset + k] = lut[k];
-    }
-    return true;
-  }
+  bool setTextureRampAt(int i, litestl::util::Vector<float> &lut);
 
   /** Evaluate the bound texture program at one point, outside any stroke.
    *
@@ -1194,94 +744,27 @@ struct Brush {
    * render matrix â€” check `textureUsesMap()` and drive such a program through
    * a stroke instead.
    */
-  float evalTextureAt(float px, float py, float pz, float nx, float ny, float nz)
-  {
-    if (!texture_program || !texture_program->eval) {
-      return 0.0f;
-    }
-    const float P[3] = {px, py, pz};
-    const float N[3] = {nx, ny, nz};
-    const float *params = texture_params.size() > 0 ? texture_params.data() : nullptr;
-    return texture_program->eval(P, N, params, nullptr);
-  }
+  float evalTextureAt(float px, float py, float pz, float nx, float ny, float nz);
 
-  bool textureUsesMap()
-  {
-    return texture_program ? texture_program->usesMap : false;
-  }
+  bool textureUsesMap();
 
   // C++-side convenience (unbound â€” strings can't cross the boundary).
-  int textureParamIndex(const char *name)
-  {
-    for (int i = 0; i < textureParamCount(); i++) {
-      if (texture_program->params[i].name == litestl::util::string(name)) {
-        return i;
-      }
-    }
-    return -1;
-  }
+  int textureParamIndex(const char *name);
 
   // Drop all recorded stroke samples â€” called at the start of each stroke so
   // STROKE_CURVED arc lengths are measured from the stroke's first dab.
-  void resetStrokePath()
-  {
-    strokePathCount = 0;
-  }
+  void resetStrokePath();
 
   // Append a dab center to the StrokePath, accumulating arc length from the
   // previous sample. Once full, the oldest sample is dropped (true ring) so
   // arc length keeps growing along a long stroke without unbounded storage.
-  void pushStrokeSample(float3 pos, float3 normal)
-  {
-    float arclen = 0.0f;
-    if (strokePathCount > 0) {
-      const StrokeSample &prev = strokePath[strokePathCount - 1];
-      arclen = prev.arclen + (pos - prev.pos).length();
-    }
-    if (strokePathCount < kStrokePathMax) {
-      strokePath[strokePathCount++] = StrokeSample{pos, normal, arclen};
-    } else {
-      for (int i = 1; i < kStrokePathMax; i++) {
-        strokePath[i - 1] = strokePath[i];
-      }
-      strokePath[kStrokePathMax - 1] = StrokeSample{pos, normal, arclen};
-    }
-  }
+  void pushStrokeSample(float3 pos, float3 normal);
 
   // Project `co` onto the StrokePath polyline and return UV for STROKE_CURVED:
   // uv.x = arc length at the nearest point along the stroke, uv.y = the
   // (unsigned) lateral distance from the centerline. With no path recorded the
   // origin is returned. WGSL mirrors this in `brush_stroke_uv`.
-  litestl::math::float2 sampleStrokeUV(float3 co) const
-  {
-    if (strokePathCount == 0) {
-      return litestl::math::float2{0.0f, 0.0f};
-    }
-    if (strokePathCount == 1) {
-      return litestl::math::float2{strokePath[0].arclen,
-                                   (co - strokePath[0].pos).length()};
-    }
-
-    float bestDist = std::numeric_limits<float>::max();
-    float bestArc = 0.0f;
-    float bestLat = 0.0f;
-    for (int i = 0; i + 1 < strokePathCount; i++) {
-      float3 a = strokePath[i].pos;
-      float3 ab = strokePath[i + 1].pos - a;
-      float len2 = ab.dot(ab);
-      float t = len2 > 0.0f ? (co - a).dot(ab) / len2 : 0.0f;
-      t = t < 0.0f ? 0.0f : (t > 1.0f ? 1.0f : t);
-      float3 d = co - (a + ab * t);
-      float dist = d.length();
-      if (dist < bestDist) {
-        bestDist = dist;
-        bestArc =
-            strokePath[i].arclen + (strokePath[i + 1].arclen - strokePath[i].arclen) * t;
-        bestLat = dist;
-      }
-    }
-    return litestl::math::float2{bestArc, bestLat};
-  }
+  litestl::math::float2 sampleStrokeUV(float3 co) const;
 
   // Overwrite `falloff_curve` with a named preset. `inverse` flips the
   // smoothstep shape (full strength at the edge, zero at the center) â€”
@@ -1291,45 +774,13 @@ struct Brush {
 
   // Re-sample `falloffCurve` (the authoring curve) into `falloff_curve`
   // (the baked LUT). Call after mutating `falloffCurve`.
-  void rebakeFalloff()
-  {
-    props::detail::curve::bake_curve_lut(
-        *falloffCurve.gen, falloff_curve.data(), kFalloffCurveSize);
-  }
+  void rebakeFalloff();
 
   // Construct the authoring `CurveGen` for a named preset, then rebake.
   // Inverse maps to a reverse-linear b-spline (1-t); Gaussian maps to a
   // centered-bump `CurveGenGuassian` parameterized to match the brush's
   // analytic edge gaussian exp(-9(1-t)^2) (offset=1, 1/(2ÏƒÂ²)=9).
-  void setFalloffCurvePreset(CurvePreset p)
-  {
-    using namespace props::detail::curve;
-
-    switch (p) {
-    case CurvePreset::Smoothstep:
-      falloffCurve = CurveGen(props::PropCurves::SMOOTHSTEP);
-      break;
-    case CurvePreset::Linear:
-      falloffCurve = CurveGen(props::PropCurves::LINEAR);
-      break;
-    case CurvePreset::Inverse: {
-      falloffCurve = CurveGen(props::PropCurves::BSPLINE);
-      static_cast<CurveGenBSpline *>(falloffCurve.gen)
-          ->loadTemplate(SplineTemplate::REVERSE_LINEAR);
-      break;
-    }
-    case CurvePreset::Gaussian: {
-      falloffCurve = CurveGen(props::PropCurves::GUASSIAN);
-      CurveGenGuassian *g = static_cast<CurveGenGuassian *>(falloffCurve.gen);
-      g->height = 1.0;
-      g->offset = 1.0;
-      g->deviation = 1.0 / std::sqrt(18.0);
-      break;
-    }
-    }
-
-    rebakeFalloff();
-  }
+  void setFalloffCurvePreset(CurvePreset p);
 
 private:
   props::PropError

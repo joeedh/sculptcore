@@ -65,17 +65,12 @@ struct CommandExecutor {
 
   /** Neighbor-bundle normal for the generated for_neighbor loop (the domain
    * seam replacing the emitted `node.data->m->v.no[nb]` read). */
-  template <class Ctx> static float3 &nbrNo(Ctx &ctx, int v)
-  {
-    return ctx.node.data->m->v.no[v];
-  }
+  template <class Ctx> static float3 &nbrNo(Ctx &ctx, int v);
 
   /** The live vertex normal the view-normal automask evaluates, or null when
    * unavailable (no mesh on the ctx â€” the historical skip). */
   template <class Ctx> const float3 *liveVertNoPtr(Ctx &ctx, int v) const
-  {
-    return ctx.m ? &ctx.m->v.no[v] : nullptr;
-  }
+;
 
   /** Selects how for_neighbor kernels enumerate the 1-ring: the live disk walk
    * (default) or the cached CSR adjacency (MeshTopoCache::ring1). The choice is
@@ -99,12 +94,7 @@ private:
   int preparedStepId_ = -1;
 
   bool preparedStepValid() const
-  {
-    return preparedStepOpen_ && tree == preparedStepTree_ && tree &&
-           tree->m == preparedStepMesh_ && brush == preparedStepBrush_ &&
-           meshLog == preparedStepLog_ &&
-           (!meshLog || meshLog->hasOpenStepFor(preparedStepMesh_, preparedStepId_));
-  }
+;
 
 public:
   bool preparedPreviewSupported() const
@@ -113,13 +103,7 @@ public:
            (!preparedPreviewClosed_ && (isFirstOfStep || preparedPreviewStroke_));
   }
 
-  void capturePreparedPreview()
-  {
-    if (!previewActive())
-      return;
-    preparedPreviewStroke_ = true;
-    meshLog->capturePreviewNodes(tree->m, {dabNodes_.data(), dabNodes_.size()});
-  }
+  void capturePreparedPreview();
 
   SpatialTree *tree;
   CommandCtxBase ctx;
@@ -268,22 +252,7 @@ private:
   props::StructDef *queryStruct_ = nullptr;
   static int allocateUniformQueryToken();
   int checkedUniformName(int token, int index, int scalarType, string &name) const
-  {
-    if (token <= 0 || token != uniformQueryToken_ || querySource_ != this || !brush ||
-        brush != queryBrush_ || brush->props.struct_def != queryStruct_)
-    {
-      return int(props::PropError::ERROR_STALE_QUERY);
-    }
-    if (index < 0 || index >= int(canonicalUniforms_.size())) {
-      return int(props::PropError::ERROR_NOT_EXISTS);
-    }
-    const auto &entry = canonicalUniforms_[index];
-    if (scalarType != int(entry.scalarType)) {
-      return int(props::PropError::ERROR_INVALID_TYPE);
-    }
-    name = entry.name;
-    return 0;
-  }
+;
 
 public:
   int uniformQueryToken() const
@@ -291,127 +260,9 @@ public:
     return querySource_ == this ? uniformQueryToken_ : 0;
   }
   BrushUniformManifestEntry uniformSnapshotChecked(int token, int uniformIndex) const
-  {
-    BrushUniformManifestEntry result;
-    string name;
-    int type = uniformIndex >= 0 && uniformIndex < int(canonicalUniforms_.size())
-                   ? int(canonicalUniforms_[uniformIndex].scalarType)
-                   : int(props::Prop::INVALID_TYPE);
-    result.status = checkedUniformName(token, uniformIndex, type, name);
-    if (!result.status) {
-      result = canonicalUniforms_[uniformIndex];
-    }
-    return result;
-  }
+;
 
-  static litestl::binding::types::Struct<CommandExecutor> *defineBindings()
-  {
-    using namespace litestl::binding;
-    types::Struct<CommandExecutor> *st = new types::Struct<CommandExecutor>(
-        "sculptcore::brush::CommandExecutor", sizeof(CommandExecutor));
-
-    BIND_STRUCT_CONSTRUCTOR(st, "main", SpatialTree *, Brush *);
-    BIND_STRUCT_MEMBER(st, brush);
-    BIND_STRUCT_MEMBER(st, tree);
-    BIND_STRUCT_MEMBER(st, meshLog);
-    BIND_STRUCT_MEMBER(st, lastDynTopoStats);
-    BIND_STRUCT_METHOD(st, beginStep, MARGS("hasDyntopo"));
-    BIND_STRUCT_METHOD(st, endStep, MARGS());
-    BIND_STRUCT_METHOD(
-        st, execBrush, MARGS("mesh", "brushType", "nodes", "origin", "normal"));
-    BIND_STRUCT_METHOD(st, execProgram, MARGS("prog", "nodes", "origin", "normal"));
-    BIND_STRUCT_METHOD(st, applyDynTopoDab, MARGS("center", "radius", "params", "seed"));
-    BIND_STRUCT_METHOD_SIG(
-        st,
-        applyDab,
-        int,
-        MARGS("prog", "center", "normal", "radius", "params", "seed"),
-        (BrushProgram *, float3, float3, float, dyntopo::DynTopoParams *, uint32_t));
-    // params==nullptr disables dyntopo for the dab; mark it nullable so the
-    // generated TS accepts undefined (the _SIG macro isn't chainable).
-    st->methods[st->methods.size() - 1]->argIsNullable("params");
-    BIND_STRUCT_METHOD(st, endDynTopoStroke, MARGS());
-    BIND_STRUCT_METHOD(st, clearIsFirstOfStep, MARGS());
-    BIND_STRUCT_METHOD(st, beginPreviewDab, MARGS("center", "radius"));
-    BIND_STRUCT_METHOD(st, extendPreviewDab, MARGS("center", "radius"));
-    BIND_STRUCT_METHOD(st, rollbackPreviewDab, MARGS());
-    BIND_STRUCT_METHOD(st, previewActive, MARGS());
-    BIND_STRUCT_METHOD(st, commitPreviewDab, MARGS());
-    BIND_STRUCT_METHOD(st, setNeighborMode, MARGS("mode"));
-    BIND_STRUCT_METHOD(st, setNonAccum, MARGS("nonAccum"));
-    BIND_STRUCT_METHOD(st, setAnchoredGrab, MARGS("anchored"));
-    BIND_STRUCT_METHOD(st, setGrabAccumAdd, MARGS("add"));
-    BIND_STRUCT_METHOD(st, setStrokeGen, MARGS("gen"));
-    BIND_STRUCT_METHOD(st, lastUniformValidationOk, MARGS());
-    BIND_STRUCT_METHOD(st, preflightRaw, MARGS("type"));
-    BIND_STRUCT_METHOD(st, preflightRawProgram, MARGS("program"));
-    BIND_STRUCT_METHOD(st, supportsResolved, MARGS("type"));
-    BIND_STRUCT_METHOD(st, supportsResolvedProgram, MARGS("program"));
-    BIND_STRUCT_METHOD(st, queryUniformManifest, MARGS("brushType"));
-    BIND_STRUCT_METHOD(st, uniformQueryToken, MARGS());
-    BIND_STRUCT_METHOD(st, uniformSnapshotChecked, MARGS("token", "uniformIndex"));
-    BIND_STRUCT_METHOD(st,
-                       readUniformScalarChecked,
-                       MARGS("token", "uniformIndex", "scalarType", "evaluate"));
-    BIND_STRUCT_METHOD(st,
-                       writeUniformScalarChecked,
-                       MARGS("token", "uniformIndex", "scalarType", "value"));
-    BIND_STRUCT_METHOD(
-        st,
-        configureUniformDynamicChecked,
-        MARGS("token", "uniformIndex", "scalarType", "device", "mode", "factor"));
-    BIND_STRUCT_METHOD(st,
-                       enableUniformDynamicChecked,
-                       MARGS("token", "uniformIndex", "scalarType", "device", "enabled"));
-    BIND_STRUCT_METHOD(st,
-                       moveUniformDynamicChecked,
-                       MARGS("token", "uniformIndex", "scalarType", "device", "index"));
-    BIND_STRUCT_METHOD(
-        st, clearUniformDynamicsChecked, MARGS("token", "uniformIndex", "scalarType"));
-    BIND_STRUCT_METHOD(st,
-                       replaceUniformDynamicTableChecked,
-                       MARGS("token", "uniformIndex", "scalarType", "device", "samples"));
-    BIND_STRUCT_METHOD(
-        st,
-        setUniformDynamicSampleChecked,
-        MARGS(
-            "token", "uniformIndex", "scalarType", "device", "index", "count", "value"));
-    BIND_STRUCT_METHOD(st,
-                       replaceUniformDynamicsChecked,
-                       MARGS("token",
-                             "uniformIndex",
-                             "scalarType",
-                             "devices",
-                             "modes",
-                             "factors",
-                             "enabled",
-                             "offsets",
-                             "samples"));
-
-    BIND_STRUCT_METHOD(st,
-                       replaceUniformResponseDynamicsChecked,
-                       MARGS("token",
-                             "uniformIndex",
-                             "scalarType",
-                             "devices",
-                             "modes",
-                             "factors",
-                             "enabled",
-                             "offsets",
-                             "samples",
-                             "kinds",
-                             "parameters"));
-    BIND_STRUCT_METHOD(st, queriedUniformEntry, MARGS("idx"));
-    BIND_STRUCT_METHOD(st, filterRadiusFloor, MARGS("brushType"));
-    BIND_STRUCT_METHOD(st, clearUniformDynamics, MARGS("idx"));
-    BIND_STRUCT_METHOD(
-        st, addUniformDynamic, MARGS("idx", "deviceType", "mixMode", "mixFactor"));
-    BIND_STRUCT_METHOD(
-        st, setUniformDynamicSample, MARGS("idx", "deviceType", "i", "n", "value"));
-    BIND_STRUCT_METHOD(st, setRenderMatrix, MARGS("m16"));
-
-    return st;
-  }
+  static litestl::binding::types::Struct<CommandExecutor> *defineBindings();
 
   /** Whether the latest checked declaration or execution operation succeeded. */
   bool lastUniformValidationOk() const
@@ -427,16 +278,7 @@ public:
    * floats, in the same element order as the debug app's `set_render_matrix`
    * verb. Bound-Vector arg = the marshal-safe bridge seam. Wrong size is a
    * no-op. */
-  void setRenderMatrix(Vector<float> &m16)
-  {
-    if (m16.size() != 16) {
-      return;
-    }
-    float *dst = &ctx.renderMatrix[0][0];
-    for (int i = 0; i < 16; i++) {
-      dst[i] = m16[i];
-    }
-  }
+  void setRenderMatrix(Vector<float> &m16);
 
   /** Select the SMOOTH for_neighbor source: 0 = LiveDisk (live topology links),
    * 1 = Csr (the cached ring1 adjacency). The LiteMesh sculpt path uses Csr â€”
@@ -468,13 +310,7 @@ public:
    * touches re-bases from orig; true = mirror image of the same dab (shared verts
    * add). The AccumOrigGrab write-back keys off the per-vert dab stamp, so this
    * only needs to advance `dabGen` once per dab (on the primary image). */
-  void setGrabAccumAdd(bool v)
-  {
-    grabAccumAdd = v;
-    if (!v) {
-      dabGen++;
-    }
-  }
+  void setGrabAccumAdd(bool v);
   void setStrokeGen(int gen)
   {
     strokeGen = uint32_t(gen);
@@ -484,10 +320,7 @@ public:
    * vertex iterator is parameterized by the AccumMode policy and threaded the
    * displacement field (null/0 unless a from-base mode is active for this dab). */
   template <class AccMode>
-  BasicVertexIter<AccMode> makeVertexIter(spatial::SpatialNode &node)
-  {
-    return BasicVertexIter<AccMode>(node, *this, ctx.dispVec, ctx.dispGen, ctx.strokeGen);
-  }
+  BasicVertexIter<AccMode> makeVertexIter(spatial::SpatialNode &node);
   BasicFaceIter makeFaceIter(spatial::SpatialNode &node)
   {
     return BasicFaceIter(node, *this);
@@ -506,63 +339,16 @@ public:
   static bool createCommandSwitch(SculptBrushes brushType,
                                   bool csrNeighbors,
                                   Brush *brushOrNull,
-                                  brush_command &def)
-  {
-    if (command::createBuiltinBrush<CommandExecutor, CsrNbr, LiveDiskNbr, AccMode>(
-            int(brushType), csrNeighbors, def))
-    {
-      return true;
-    }
-    // Extra (out-of-repo) kernels dispatch through the generated registry;
-    // a no-op fallback compiles in when no extra kernel dirs are configured.
-    return brushOrNull &&
-           command::createExtraBrush<CommandExecutor, CsrNbr, LiveDiskNbr, AccMode>(
-               int(brushType), csrNeighbors, *brushOrNull, def);
-  }
+                                  brush_command &def);
 
   /** Fill `def` for `brushType` under a fixed AccumMode policy. createCommand
    * calls this once for AccumLive, then again for AccumOrig when non-accumulate
    * is active and the brush is accumulable â€” the second call overwrites def.exec
    * with the AccumOrig kernel while keeping the rest of the (identical) manifest. */
   template <class AccMode>
-  void createCommandImpl(SculptBrushes brushType, brush_command &def)
-  {
-    if (createCommandSwitch<AccMode>(
-            brushType, effectiveNeighborMode() == NeighborMode::Csr, brush, def))
-    {
-      return;
-    }
-    printf("Unknown brush type %d\n", static_cast<int>(brushType));
-    abort();
-  }
+  void createCommandImpl(SculptBrushes brushType, brush_command &def);
 
-  brush_command createCommand(SculptBrushes brushType)
-  {
-    brush_command def;
-    createCommandImpl<AccumLive>(brushType, def);
-    if (def.grabModeCapable && anchoredGrab) {
-      // Always deform from each vert's stroke-start position, so the region is
-      // fixed at stroke start and the grab follows the cursor (#35). One write-
-      // back (AccumOrigGrab) serves every symmetry image: the first image to
-      // touch a vert this dab re-bases it from orig, later images of the same
-      // dab add their displacement onto it (arbitrated by the per-vert dab
-      // stamp). Forced on regardless of the ACCUMULATE flag. The op marks each
-      // image via setGrabAccumAdd, which advances the per-dab generation on the
-      // primary.
-      def.grabMode = true;
-      /* The second impl call re-appends the same uniform + attr manifests â€”
-         clear them first or grab-class brushes report every entry twice (the
-         wave-5 queryUniformManifest / queryAttrManifest bridge). */
-      def.uniforms = decltype(def.uniforms)();
-      def.attrs = decltype(def.attrs)();
-      createCommandImpl<AccumOrigGrab>(brushType, def);
-    } else if (nonAccum && def.accumulable && !def.relaxesBase) {
-      def.uniforms = decltype(def.uniforms)();
-      def.attrs = decltype(def.attrs)();
-      createCommandImpl<AccumOrig>(brushType, def);
-    }
-    return def;
-  }
+  brush_command createCommand(SculptBrushes brushType);
 
   /** Lower bound on the node-filter radius for `brushType`. An `@unbounded`
    * kernel carries no distance falloff of its own â€” only `unboundedWindow`'s
@@ -576,16 +362,7 @@ public:
     return floorMemoUnbounded_ ? brush->radius * brush->unboundedExtent : 0.0f;
   }
 
-  void ensureToolMemo(SculptBrushes brushType)
-  {
-    if (int(brushType) != floorMemoTool_) {
-      brush_command def;
-      createCommandImpl<AccumLive>(brushType, def);
-      floorMemoTool_ = int(brushType);
-      floorMemoUnbounded_ = def.unbounded;
-      floorMemoGrabCapable_ = def.grabModeCapable;
-    }
-  }
+  void ensureToolMemo(SculptBrushes brushType);
 
   /** Whether `brushType` takes the from-orig fixed-region grab policy on this
    * stroke â€” the same condition createCommand uses to pick AccumOrigGrab. */
@@ -618,54 +395,7 @@ public:
   void grabFilterNodes(float3 center,
                        float pinRadius,
                        float hostRadius,
-                       Vector<spatial::SpatialNode *> &nodes)
-  {
-    if (stepHasDyntopo) {
-      // Topology and the leaf set move under the stroke, so nothing survives
-      // being pinned; fall back to the drag-widened filter.
-      grabWidenRadius_ = std::fmax(
-          grabWidenRadius_, std::fmax(hostRadius, pinRadius + brush->grabTo.length()));
-      tree->filterNodes(center, grabWidenRadius_, nodes);
-      return;
-    }
-
-    GrabRegion *reg = nullptr;
-    const float tol = std::fmax(pinRadius, 1.0f) * 1e-4f;
-    for (GrabRegion &r : grabRegions_) {
-      if ((r.center - center).lengthSqr() <= tol * tol) {
-        reg = &r;
-        break;
-      }
-    }
-    // Query new support and retain moved leaves from every symmetry image.
-    // Radius growth must not discard leaves that already left the anchor.
-    tree->filterNodes(center, pinRadius, nodes);
-    util::Set<int> seen;
-    for (auto *node : nodes)
-      seen.add(node->id);
-    for (const auto &region : grabRegions_)
-      for (int id : region.nodeIds)
-        if (!seen.contains(id))
-          if (auto *node = tree->node_from_id(id)) {
-            nodes.append(node);
-            seen.add(id);
-          }
-    if (!reg) {
-      // One entry per symmetry image; more than that means the "anchor" is
-      // drifting, so stop caching rather than grow without bound.
-      if (grabRegions_.size() >= 16) {
-        return;
-      }
-      grabRegions_.append(GrabRegion());
-      reg = &grabRegions_[grabRegions_.size() - 1];
-    }
-    reg->center = center;
-    reg->radius = pinRadius;
-    reg->nodeIds.clear();
-    for (spatial::SpatialNode *n : nodes) {
-      reg->nodeIds.append(n->id);
-    }
-  }
+                       Vector<spatial::SpatialNode *> &nodes);
 
   /** Map a declared attribute domain to the mesh's element AttrGroup. */
   static mesh::AttrGroup *attrGroupForDomain(mesh::Mesh *m, AttrElemDomain d)
@@ -1440,22 +1170,10 @@ public:
   /** The fixed common float props are valid dynamics targets for any brush (the
    * bridge drives strength/radius/... by pressure regardless of the active
    * kernel), so they're exempt from the active-manifest membership check. */
-  static bool isCommonFloatProp(const string &name)
-  {
-    return name == string("strength") || name == string("radius") ||
-           name == string("spacing") || name == string("planeoff") ||
-           name == string("autosmooth");
-  }
+  static bool isCommonFloatProp(const string &name);
 
   static const BrushUniformManifestEntry *findUniformEntry(brush_command &cmd,
-                                                           const string &name)
-  {
-    for (const auto &u : cmd.uniforms) {
-      if (u.name == name)
-        return &u;
-    }
-    return nullptr;
-  }
+                                                           const string &name);
 
   /** Validate the active brush's uniform dynamics once at stroke start, scoped to
    * its manifest. Catches the shared-`Brush`-struct traps (a stray dynamic left
@@ -1463,101 +1181,7 @@ public:
    * unbaked 1-entry response curve, an out-of-range authored default, and an
    * inverted/NaN `@range`. Returns a structured result; the caller skips the
    * stroke on `!ok` so a misconfigured binding never mutates the mesh. */
-  UniformValidationResult validateUniformDynamics(brush_command &cmd)
-  {
-    UniformValidationResult res;
-    char buf[256];
-
-    // (A) Static manifest checks â€” independent of any configured dynamic.
-    for (const auto &u : cmd.uniforms) {
-      if (!u.hasRange)
-        continue;
-      if (std::isnan(u.rangeMin) || std::isnan(u.rangeMax) || u.rangeMin > u.rangeMax) {
-        res.ok = false;
-        snprintf(buf,
-                 sizeof(buf),
-                 "uniform '%s': invalid @range [%g, %g]",
-                 u.name.c_str(),
-                 u.rangeMin,
-                 u.rangeMax);
-        res.messages.append(string(buf));
-        continue; // a broken range makes the default check meaningless
-      }
-      if (u.isFloat && u.hasDefault && (u.def < u.rangeMin || u.def > u.rangeMax)) {
-        res.ok = false;
-        snprintf(buf,
-                 sizeof(buf),
-                 "uniform '%s': default %g outside @range [%g, %g]",
-                 u.name.c_str(),
-                 u.def,
-                 u.rangeMin,
-                 u.rangeMax);
-        res.messages.append(string(buf));
-      }
-    }
-
-    // (B) Dynamics checks â€” every prop carrying a configured device stack must
-    // be a valid, dynamic-capable target of the active brush.
-    if (brush && brush->props.struct_def) {
-      for (props::Property *p : brush->props.struct_def->properties()) {
-        props::Dynamics *dyn = brush->propDynamics(p->name);
-        if (!dyn || dyn->devices.size() == 0)
-          continue;
-
-        const BrushUniformManifestEntry *entry = findUniformEntry(cmd, p->name);
-        if (!entry && !isCommonFloatProp(p->name) && p->name != string("invert")) {
-          res.ok = false;
-          snprintf(buf,
-                   sizeof(buf),
-                   "stray dynamic on '%s': not a uniform of the active brush",
-                   p->name.c_str());
-          res.messages.append(string(buf));
-          continue;
-        }
-        if (entry && !(entry->dynamic &&
-                       (entry->isFloat || entry->scalarType == props::Prop::INT32 ||
-                        entry->scalarType == props::Prop::BOOL)))
-        {
-          res.ok = false;
-          snprintf(buf,
-                   sizeof(buf),
-                   "dynamic on '%s': uniform is @static / unsupported (not "
-                   "dynamic-capable)",
-                   p->name.c_str());
-          res.messages.append(string(buf));
-          continue;
-        }
-        if (!props::Dynamics::validStack(dyn->devices)) {
-          res.ok = false;
-          res.messages.append(string("uniform '") + p->name +
-                              "': invalid or pending device stack");
-        }
-        for (const auto &dev : dyn->devices) {
-          if (dev.curveTable.size() == 1) {
-            res.ok = false;
-            snprintf(buf,
-                     sizeof(buf),
-                     "uniform '%s': device response curve has 1 entry "
-                     "(unbaked; need 0 or >=2)",
-                     p->name.c_str());
-            res.messages.append(string(buf));
-          }
-          int dt = (int)dev.type;
-          if (dt < 0 || dt > (int)props::DeviceType::TWIST) {
-            res.ok = false;
-            snprintf(buf,
-                     sizeof(buf),
-                     "uniform '%s': invalid device type %d",
-                     p->name.c_str(),
-                     dt);
-            res.messages.append(string(buf));
-          }
-        }
-      }
-    }
-
-    return res;
-  }
+  UniformValidationResult validateUniformDynamics(brush_command &cmd);
 
   /** --- Wave 5: per-kernel uniform manifest query for the TS bridge -----------
    * The binding runtime can't marshal a JS string into a `util::string` method
@@ -1568,39 +1192,7 @@ public:
    * *UniformDynamics methods resolve the index -> name and delegate to the Brush
    * by-name dynamics API (Wave 3). */
 
-  int queryUniformManifest(int brushType)
-  {
-    queriedUniforms.clear();
-    canonicalUniforms_.clear();
-    querySource_ = this;
-    queryBrush_ = nullptr;
-    queryStruct_ = nullptr;
-    uniformQueryToken_ = allocateUniformQueryToken();
-    if (!uniformQueryToken_ || !brush || !brush->props.struct_def) {
-      lastRegistration = {props::PropError::ERROR_INVALID_OWNER, "query"};
-      return -1;
-    }
-    brush_command cmd;
-    if (!createDeclarationCommand(SculptBrushes(brushType), cmd)) {
-      lastRegistration = {props::PropError::ERROR_NOT_EXISTS, "kernel"};
-      return -1;
-    }
-    if (brush && brush->props.struct_def) {
-      lastRegistration = cmd.registerProps(*brush->props.struct_def);
-      if (!registrationSucceeded()) {
-        return -1;
-      }
-      // Initialize legacy working slots only after successful registration.
-      createCommand(SculptBrushes(brushType));
-    }
-    for (const auto &u : cmd.uniforms) {
-      queriedUniforms.append(u);
-      canonicalUniforms_.append(u);
-    }
-    queryBrush_ = brush;
-    queryStruct_ = brush->props.struct_def;
-    return int(queriedUniforms.size());
-  }
+  int queryUniformManifest(int brushType);
 
   BrushScalarResult
   readUniformScalarChecked(int token, int uniformIndex, int scalarType, bool evaluate)
@@ -1613,72 +1205,24 @@ public:
     return brush->readScalarChecked(name, scalarType, evaluate);
   }
 
-  int writeUniformScalarChecked(int token, int uniformIndex, int scalarType, double value)
-  {
-    string name;
-    int error = checkedUniformName(token, uniformIndex, scalarType, name);
-    if (error) {
-      return error;
-    }
-    return brush->writeScalarChecked(name, scalarType, value);
-  }
+  int writeUniformScalarChecked(int token, int uniformIndex, int scalarType, double value);
 
   int configureUniformDynamicChecked(
-      int token, int uniformIndex, int scalarType, int device, int mode, float factor)
-  {
-    string name;
-    int error = checkedUniformName(token, uniformIndex, scalarType, name);
-    if (error) {
-      return error;
-    }
-    return brush->configureDynamicChecked(name, scalarType, device, mode, factor);
-  }
+      int token, int uniformIndex, int scalarType, int device, int mode, float factor);
 
   int enableUniformDynamicChecked(
-      int token, int uniformIndex, int scalarType, int device, int enabled)
-  {
-    string name;
-    int error = checkedUniformName(token, uniformIndex, scalarType, name);
-    if (error) {
-      return error;
-    }
-    return brush->enableDynamicChecked(name, scalarType, device, enabled);
-  }
+      int token, int uniformIndex, int scalarType, int device, int enabled);
 
   int moveUniformDynamicChecked(
-      int token, int uniformIndex, int scalarType, int device, int index)
-  {
-    string name;
-    int error = checkedUniformName(token, uniformIndex, scalarType, name);
-    if (error) {
-      return error;
-    }
-    return brush->moveDynamicChecked(name, scalarType, device, index);
-  }
+      int token, int uniformIndex, int scalarType, int device, int index);
 
-  int clearUniformDynamicsChecked(int token, int uniformIndex, int scalarType)
-  {
-    string name;
-    int error = checkedUniformName(token, uniformIndex, scalarType, name);
-    if (error) {
-      return error;
-    }
-    return brush->clearDynamicsChecked(name, scalarType);
-  }
+  int clearUniformDynamicsChecked(int token, int uniformIndex, int scalarType);
 
   int replaceUniformDynamicTableChecked(int token,
                                         int uniformIndex,
                                         int scalarType,
                                         int device,
-                                        util::Vector<float> &samples)
-  {
-    string name;
-    int error = checkedUniformName(token, uniformIndex, scalarType, name);
-    if (error) {
-      return error;
-    }
-    return brush->replaceDynamicTableChecked(name, scalarType, device, samples);
-  }
+                                        util::Vector<float> &samples);
 
   int setUniformDynamicSampleChecked(int token,
                                      int uniformIndex,
@@ -1686,15 +1230,7 @@ public:
                                      int device,
                                      int index,
                                      int count,
-                                     float value)
-  {
-    string name;
-    int error = checkedUniformName(token, uniformIndex, scalarType, name);
-    if (error) {
-      return error;
-    }
-    return brush->setDynamicSampleChecked(name, scalarType, device, index, count, value);
-  }
+                                     float value);
 
   int replaceUniformDynamicsChecked(int token,
                                     int uniformIndex,
@@ -1704,16 +1240,7 @@ public:
                                     util::Vector<float> &factors,
                                     util::Vector<int> &enabled,
                                     util::Vector<int> &offsets,
-                                    util::Vector<float> &samples)
-  {
-    string name;
-    int error = checkedUniformName(token, uniformIndex, scalarType, name);
-    if (error) {
-      return error;
-    }
-    return brush->replaceDynamicsChecked(
-        name, scalarType, devices, modes, factors, enabled, offsets, samples);
-  }
+                                    util::Vector<float> &samples);
 
   int replaceUniformResponseDynamicsChecked(int token,
                                             int uniformIndex,
@@ -1725,24 +1252,7 @@ public:
                                             util::Vector<int> &offsets,
                                             util::Vector<float> &samples,
                                             util::Vector<int> &kinds,
-                                            util::Vector<double> &parameters)
-  {
-    string name;
-    int error = checkedUniformName(token, uniformIndex, scalarType, name);
-    if (error) {
-      return error;
-    }
-    return brush->replaceResponseDynamicsChecked(name,
-                                                 scalarType,
-                                                 devices,
-                                                 modes,
-                                                 factors,
-                                                 enabled,
-                                                 offsets,
-                                                 samples,
-                                                 kinds,
-                                                 parameters);
-  }
+                                            util::Vector<double> &parameters);
 
   bool registrationSucceeded()
   {
@@ -1789,38 +1299,11 @@ public:
     return registrationSucceeded();
   }
 
-  BrushUniformManifestEntry *queriedUniformEntry(int idx)
-  {
-    if (idx < 0 || idx >= int(queriedUniforms.size())) {
-      return nullptr;
-    }
-    return &queriedUniforms[idx];
-  }
+  BrushUniformManifestEntry *queriedUniformEntry(int idx);
 
-  void clearUniformDynamics(int idx)
-  {
-    auto entry = uniformSnapshotChecked(uniformQueryToken(), idx);
-    if (entry.status) {
-      return;
-    }
-    brush->clearPropDynamicsByName(entry.name);
-  }
-  void addUniformDynamic(int idx, int deviceType, int mixMode, float mixFactor)
-  {
-    auto entry = uniformSnapshotChecked(uniformQueryToken(), idx);
-    if (entry.status) {
-      return;
-    }
-    brush->addPropDynamicByName(entry.name, deviceType, mixMode, mixFactor);
-  }
-  void setUniformDynamicSample(int idx, int deviceType, int i, int n, float value)
-  {
-    auto entry = uniformSnapshotChecked(uniformQueryToken(), idx);
-    if (entry.status) {
-      return;
-    }
-    brush->setPropDynamicSampleByName(entry.name, deviceType, i, n, value);
-  }
+  void clearUniformDynamics(int idx);
+  void addUniformDynamic(int idx, int deviceType, int mixMode, float mixFactor);
+  void setUniformDynamicSample(int idx, int deviceType, int i, int n, float value);
 
   // Update the per-dab stroke frame: the stroke tangent (this dab origin minus
   // the previous dab center) and, for the oriented Box falloff, its primary
@@ -2374,58 +1857,17 @@ public:
    * extendPreviewDab() for any symmetry mirror images of the same tick).
    * Roll the whole group back with rollbackPreviewDab() before the next
    * tick's dabs, or keep it with commitPreviewDab() at stroke end. */
-  void beginPreviewDab(float3 center, float radius)
-  {
-    if (!meshLog || !tree) {
-      return;
-    }
-    meshLog->beginPreviewDab(tree->m, tree, center, radius);
-  }
+  void beginPreviewDab(float3 center, float radius);
 
   /** Add another region to the currently-open preview session (a mirror
    * image of the same driver tick) without resetting it â€” the whole group
    * rolls back together via one rollbackPreviewDab(). See
    * MeshLog::extendPreviewDab. */
-  void extendPreviewDab(float3 center, float radius)
-  {
-    if (!meshLog || !tree) {
-      return;
-    }
-    meshLog->extendPreviewDab(tree->m, tree, center, radius);
-  }
+  void extendPreviewDab(float3 center, float radius);
 
   /** Undo the most recent preview dab (topology pop-and-undo + position/attr
    * restore) without closing the step. See MeshLog::rollbackPreviewDab. */
-  void rollbackPreviewDab()
-  {
-    if (!meshLog || !tree) {
-      return;
-    }
-    const bool prepared = preparedPreviewStroke_ && previewActive();
-    meshLog->rollbackPreviewDab(tree->m, tree);
-    if (prepared) {
-      for (auto &ref : tree->m->v.attrs.attrs) {
-        if (ref.type != mesh::AttrType::INT || (ref.name != string(".brush.disp.gen") &&
-                                                ref.name != string(".brush.dab.gen")))
-          continue;
-        for (int v : meshLog->preview_.vertIdx)
-          if (auto *stamp = static_cast<int *>(ref.data->getElemData(v)))
-            *stamp = 0;
-      }
-      for (auto *node : tree->leaves()) {
-        node->baseStampGen = 0;
-        node->baseStampOpts = -1;
-      }
-      preparedCavity.reset();
-      preparedEnhance.reset();
-      coPrevFull_ = false;
-      coPrevDirty_.clear();
-      coPrevGen_++;
-      uvReprojPending_.clear();
-      brush->resetStrokePath();
-      isFirstOfStep = true;
-    }
-  }
+  void rollbackPreviewDab();
 
   /** True if a preview snapshot is pending rollback (diagnostic / debug-app use). */
   bool previewActive() const
@@ -2437,213 +1879,16 @@ public:
    * Call once at the true end of an Anchored/Drag Dot stroke (after the last
    * dab, instead of a paired rollback) so previewActive() doesn't leak into
    * the next stroke's step. See MeshLog::commitPreviewDab. */
-  void commitPreviewDab()
-  {
-    if (!meshLog) {
-      return;
-    }
-    if (preparedPreviewStroke_ && previewActive())
-      preparedPreviewClosed_ = true;
-    meshLog->commitPreviewDab();
-  }
+  void commitPreviewDab();
 
-  void beginStep(bool hasDyntopo)
-  {
-    preparedCavity.reset();
-    preparedEnhance.reset();
-    preparedStepOpen_ = true;
-    preparedPreviewStroke_ = false;
-    preparedPreviewClosed_ = false;
-    preparedStepTree_ = tree;
-    preparedStepMesh_ = tree ? tree->m : nullptr;
-    preparedStepBrush_ = brush;
-    preparedStepLog_ = meshLog;
-    isFirstOfStep = true;
-    strokeValidationFailed = false;
-    stepHasDyntopo = hasDyntopo;
-    /* Positions may have changed since the last stroke (undo, ops, other
-     * tools) â€” force the stroke's first needsCoPrev exec to take a full
-     * snapshot. The gen bump keeps stale node stamps from suppressing
-     * dirty-list appends. */
-    coPrevFull_ = false;
-    coPrevDirty_.clear();
-    coPrevGen_++;
-    uvReprojPending_.clear();
-    grabRegions_.clear();
-    grabWidenRadius_ = 0.0f;
-    if (brush) {
-      brush->resetStrokePath();
-    }
-    if (meshLog) {
-      meshLog->beginStep(hasDyntopo);
-    }
-    preparedStepId_ = meshLog ? meshLog->lastStepId() : -1;
-  }
+  void beginStep(bool hasDyntopo);
 
-  void endStep()
-  {
-    preparedStepOpen_ = false;
-    isFirstOfStep = false;
-    /* Flush the stroke's deferred UV reprojection while the step is still
-     * open, so the corner captures land inside it. */
-    if (uvReprojPending_.size() > 0 && tree && tree->m) {
-      Vector<int> rverts;
-      Vector<float3> rold;
-      for (const auto &pair : uvReprojPending_) {
-        rverts.append(pair.key);
-        rold.append(pair.value);
-      }
-      reprojectUvsWithCapture(tree->m,
-                              std::span<const int>(rverts.data(), rverts.size()),
-                              std::span<const float3>(rold.data(), rold.size()));
-    }
-    uvReprojPending_.clear();
-    if (meshLog) {
-      meshLog->endStep();
-    }
-  }
+  void endStep();
 };
 
-/** Declared in accum_mode.h; AccumKind::Grab write-back uses it. First image to
- * write vert `v` this dab â†’ stamp curDabGen and return true (re-base from orig);
- * an already-stamped vert returns false (later image adds). The page was
- * pre-materialized in exec(), so this only reads/writes an existing slot. With no
- * stamp attr (single-image stroke, dab counter idle) every write re-bases. */
-inline bool grabClaimFirstTouch(const CommandExecutor &exec, int v)
-{
-  mesh::AttrData<int> *dabGen = exec.ctx.dabGen;
-  if (!dabGen) {
-    return true;
-  }
-  if ((*dabGen)[v] == int(exec.ctx.curDabGen)) {
-    return false;
-  }
-  (*dabGen)[v] = int(exec.ctx.curDabGen);
-  return true;
-}
+#include "brush_executor_templates.inl"
 
-/** Build a kernel's BrushCommandDef without a live stroke. csrNeighbors=false:
- * the manifest and the flags are identical for both neighbor policies. The
- * scratch Brush is what lets an extra (out-of-repo) kernel report its manifest â€”
- * createExtraBrush seeds uniform defaults into the Brush it is handed, so a null
- * one made every extra kernel report unhandled (and therefore empty), which is
- * precisely the case the grid-attr capability rule has to answer for. False when
- * `brushType` matched nothing. */
-inline bool buildBrushDef(SculptBrushes brushType, CommandExecutor::brush_command &def)
-{
-  Brush scratch;
-  return CommandExecutor::createCommandSwitch<AccumLive>(brushType, false, &scratch, def);
-}
 
-/** A kernel's declared attribute layers, into caller-owned storage. Prefer this
- * over BrushMetadata's bound instance methods in engine code: those park the
- * result on the query object (the binding runtime hands bound structs back by
- * pointer and cannot marshal a Vector), so two interleaved queries clobber each
- * other. False when `brushType` matched nothing; `out` is cleared either way. */
-inline bool brushAttrManifestFor(SculptBrushes brushType,
-                                 Vector<BrushAttrManifestEntry> &out)
-{
-  out.clear();
-  CommandExecutor::brush_command def;
-  if (!buildBrushDef(brushType, def)) {
-    return false;
-  }
-  for (const auto &a : def.attrs) {
-    out.append(a);
-  }
-  return true;
-}
+#include "brush_metadata.h"
 
-/** The manifest entry for one handle, or null. */
-inline const BrushAttrManifestEntry *
-findBrushAttrEntry(const Vector<BrushAttrManifestEntry> &manifest, const char *handle)
-{
-  util::string want(handle);
-  for (const auto &a : manifest) {
-    if (a.handle.operator==(want)) {
-      return &a;
-    }
-  }
-  return nullptr;
-}
-
-/** A kernel's codegen-set policy bits, queried by tool id without a live stroke.
- * All-false for an unknown or out-of-repo (extra) kernel. */
-inline BrushDefFlags brushDefFlagsFor(SculptBrushes brushType)
-{
-  BrushDefFlags flags;
-  CommandExecutor::brush_command def;
-  if (!buildBrushDef(brushType, def)) {
-    return flags;
-  }
-  flags.needsCoPrev = def.needsCoPrev;
-  flags.accumulable = def.accumulable;
-  flags.relaxesBase = def.relaxesBase;
-  flags.grabModeCapable = def.grabModeCapable;
-  flags.unbounded = def.unbounded;
-  flags.incremental = def.incremental;
-  flags.writesMask = def.writesMask;
-  flags.faceMode = def.faceMode;
-  for (const auto &a : def.attrs) {
-    if (a.kernelWrites && (a.use & int(mesh::AttrUse::COLOR))) {
-      flags.writesColor = true;
-    }
-    if (a.boundName.operator==(util::string(".boundary.vert.class"))) {
-      flags.readsVclass = true;
-    }
-  }
-  return flags;
-}
-
-/**
- * Stateless query object for a kernel's codegen-set metadata. Default-constructible
- * and stroke-independent (unlike CommandExecutor, which needs a spatial tree and a
- * live Brush), so a host can ask about any tool before â€” or without â€” a stroke and
- * drive its dab shaping / GPU kernel choice off the answer instead of a per-brush
- * conditional. Everything is addressed by index: the binding runtime can't marshal
- * a JS string into a `util::string` method arg.
- */
-struct BrushMetadata {
-  Vector<BrushAttrManifestEntry> queriedAttrs;
-  // Result slots â€” the binding runtime hands bound structs back by pointer, so
-  // the values have to outlive the call.
-  BrushDefFlags queriedFlags;
-
-  static litestl::binding::types::Struct<BrushMetadata> *defineBindings()
-  {
-    using namespace litestl::binding;
-    types::Struct<BrushMetadata> *st = new types::Struct<BrushMetadata>(
-        "sculptcore::brush::BrushMetadata", sizeof(BrushMetadata));
-    BIND_STRUCT_DEFAULT_CONSTRUCTOR(st);
-    BIND_STRUCT_METHOD(st, queryAttrManifest, MARGS("brushType"));
-    BIND_STRUCT_METHOD(st, queriedAttrEntry, MARGS("idx"));
-    BIND_STRUCT_METHOD(st, queryBrushFlags, MARGS("brushType"));
-    return st;
-  }
-
-  /** Enumerate a kernel's declared attribute layers so a host can retarget each
-   * retargetable handle (empty boundName, non-zero `use`) at the mesh layer active
-   * for that AttrUse category. Returns the entry count. */
-  int queryAttrManifest(int brushType)
-  {
-    brushAttrManifestFor(static_cast<SculptBrushes>(brushType), queriedAttrs);
-    return int(queriedAttrs.size());
-  }
-
-  BrushAttrManifestEntry *queriedAttrEntry(int idx)
-  {
-    if (idx < 0 || idx >= int(queriedAttrs.size())) {
-      return nullptr;
-    }
-    return &queriedAttrs[idx];
-  }
-
-  /** The kernel's policy bits. Valid until the next call; all-false for an
-   * unknown or out-of-repo (extra) kernel. */
-  BrushDefFlags *queryBrushFlags(int brushType)
-  {
-    queriedFlags = brushDefFlagsFor(static_cast<SculptBrushes>(brushType));
-    return &queriedFlags;
-  }
-};
 } // namespace sculptcore::brush
