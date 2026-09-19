@@ -50,6 +50,7 @@ static std::vector<float3> preparedFalloffRun(bool grid,
     const int count = grid ? domain->vertCount() : cage->v.count;
     for (int v = 0; v < count; v++)
       before.push_back(grid ? domain->pos()[v] : cage->v.co[v]);
+    auto expected = before;
     const auto blobBefore = storeBlob(mr);
     if (grid)
       gridEx.beginStep();
@@ -64,6 +65,28 @@ static std::vector<float3> preparedFalloffRun(bool grid,
         program.setCommandFloat(
             stage, int(BrushProp::Radius), .5f + stage + (resolved ? 0 : pressure));
         program.setCommandFloat(stage, int(BrushProp::Strength), .2f);
+        const float r = .5f + stage + pressure;
+        for (auto &co : expected) {
+          const auto delta = co - center;
+          float distance = delta.length() / r;
+          if (shape == FalloffShape::Cube)
+            distance = std::max({std::abs(delta[0]), std::abs(delta[1]), std::abs(delta[2])}) / r;
+          else if (shape == FalloffShape::Box)
+            distance = std::max({std::abs(delta[1]) / 1.2f, std::abs(delta[0]) / .8f,
+                                 std::abs(delta[2])}) / r;
+          else if (shape == FalloffShape::Linear) {
+            if (delta.length() > r)
+              continue;
+            distance = std::abs(delta[2]) / r;
+          }
+          if (distance > 1)
+            continue;
+          const float t = 1 - distance;
+          const float falloff = kind == FalloffKind::Curve ? .1f + .9f * t :
+                                kind == FalloffKind::Gaussian ? std::exp(-9 * distance * distance) :
+                                t * t * (3 - 2 * t);
+          co[2] += .2f * falloff * r * .5f;
+        }
       }
       if (resolved) {
         auto result =
@@ -72,6 +95,10 @@ static std::vector<float3> preparedFalloffRun(bool grid,
                  : (programMode ? meshEx.applyResolvedProgram(&program, center, normal)
                                 : meshEx.applyResolvedDab(mainTool, center, normal));
         test_assert(result.error == PropError::ERROR_NONE);
+        if (!grid && !programMode && dab == 0) {
+          test_assert(meshEx.lastDabNodeCount > 0);
+          test_assert(meshEx.lastDabNodeCount < int(tree.leaves().size()));
+        }
       } else if (grid) {
         brush.radius = 100;
         test_assert(gridEx.applyProgram(&program, center, normal) >= 0);
@@ -89,6 +116,8 @@ static std::vector<float3> preparedFalloffRun(bool grid,
     for (int v = 0; v < count; v++) {
       output.push_back(grid ? domain->pos()[v] : cage->v.co[v]);
       test_assert(std::isfinite(output.back()[2]));
+      if (!layered)
+        test_assert((output.back() - expected[v]).length() < 2e-6f);
       changed += (output.back() - before[v]).lengthSqr() > 0;
     }
     test_assert(changed > 0);
@@ -149,6 +178,6 @@ static void preparedFalloffGate()
       test_assert((checked[i] - raw[i]).length() < 1e-6f);
   }
   fprintf(stderr,
-          "prepared falloff mesh/grid standalone/program all-region parity and undo "
+          "prepared falloff mesh/grid standalone/program bounded support, analytic geometry and undo "
           "passed\n");
 }

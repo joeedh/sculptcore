@@ -250,7 +250,7 @@ GridBrushExecutor::applyResolvedDab(SculptBrushes brushType,
       radius = float(value.value);
     }
   }
-  if (!std::isfinite(radius) || radius < 0 ||
+  if (!std::isfinite(radius) || !std::isfinite(brush->falloffSupportRadius(radius)) || radius < 0 ||
       (radius > 0 && !std::isfinite(1.0f / radius)))
   {
     return fail(PropError::ERROR_INVALID_VALUE, "radius");
@@ -273,11 +273,10 @@ GridBrushExecutor::applyResolvedDab(SculptBrushes brushType,
   dabGrids_.clear();
   dabLeaves_.clear();
   nodePtrs_.clear();
-  if (radius > 0 && queryDabLeaves(false,
-                                   radius,
+  if (radius > 0 && queryDabLeaves(command.grabMode,
+                                   brush->falloffSupportRadius(radius),
                                    origin,
-                                   command.unbounded || command.grabMode ||
-                                       resolvedFalloffNeedsAllNodes(*brush)))
+                                   command.unbounded))
   {
     updateStrokeFrame(origin);
     brush->pushStrokeSample(origin, normal);
@@ -343,9 +342,14 @@ props::ScalarRegistrationResult GridBrushExecutor::applyResolvedProgram(
                                            prepared);
   if (lastRegistration.error != PropError::ERROR_NONE)
     return lastRegistration;
-  bool allLeaves = resolvedFalloffNeedsAllNodes(*brush);
+  const float support = brush->falloffSupportRadius(prepared.radius);
+  if (!std::isfinite(support)) {
+    lastRegistration = {PropError::ERROR_INVALID_VALUE, "falloff support"};
+    return lastRegistration;
+  }
+  bool allLeaves = false, hasGrab = false;
   for (size_t i = 0; i < commands.size(); i++) {
-    allLeaves |= commands[i].grabMode && prepared.radii[i] > 0;
+    hasGrab |= commands[i].grabMode && prepared.radii[i] > 0;
     if (!commands[i].unbounded)
       continue;
     lastRegistration =
@@ -363,7 +367,7 @@ props::ScalarRegistrationResult GridBrushExecutor::applyResolvedProgram(
   dabGrids_.clear();
   dabLeaves_.clear();
   nodePtrs_.clear();
-  if (prepared.radius > 0 && queryDabLeaves(false, prepared.radius, origin, allLeaves)) {
+  if (prepared.radius > 0 && queryDabLeaves(hasGrab, support, origin, allLeaves)) {
     ScopedBrushWorkingValues working(*brush,
                                      {prepared.stages.data(), prepared.stages.size()});
     updateStrokeFrame(origin);

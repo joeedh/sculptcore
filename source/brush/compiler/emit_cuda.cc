@@ -1275,8 +1275,11 @@ struct Emit {
     // Spatial + scalar term only (slider x falloff x brush texture); emitted
     // after brush_sample_tex (define-before-use). Mirrors CommandCtx::strength.
     write("__device__ float brush_strength(float3 p) {\n");
-    write(
-        "  float sb_t = 1.0f - fminf(brush_falloff_dist(p - ctx_u.surfacePos), 1.0f);\n");
+    write("  float3 sb_delta = p - ctx_u.surfacePos;\n");
+    write("  float sb_dist = brush_falloff_dist(sb_delta);\n");
+    write("  if (brush_u.radius <= 0.0f || sb_dist > 1.0f || "
+          "(brush_u.falloff_shape == 2u && sc_length(sb_delta) > brush_u.radius)) return 0.0f;\n");
+    write("  float sb_t = 1.0f - sb_dist;\n");
     write("  float sb_s = brush_u.strength * brush_falloff(sb_t) * brush_sample_tex(p, "
           "ctx_u.surfaceNo);\n");
     write("  return brush_u.invert != 0u ? -sb_s : sb_s;\n");

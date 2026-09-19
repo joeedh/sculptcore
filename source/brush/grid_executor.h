@@ -739,7 +739,6 @@ struct GridBrushExecutor {
     for (GridAttrMirror *m : attrMirrors_.items) {
       m->dirty = false;
     }
-    grabPinned_ = false;
     grabLeaves_.clear();
     if (brush) {
       brush->resetStrokePath();
@@ -1057,9 +1056,9 @@ private:
   }
 
   /** Node filter for one logical dab: fill dabLeaves_/nodePtrs_ with the
-   * leaves within radius `r` of `origin`. Grab-class strokes pin their first
-   * dab's set (the region is fixed at stroke start — the mesh path's
-   * grabFilterNodes, without the dyntopo fallback). False when empty. */
+   * leaves within radius `r` of `origin`. Grab-class strokes retain previously
+   * reached leaves across radius and symmetry changes, as grabFilterNodes does
+   * on the mesh path. False when empty. */
   bool queryDabLeaves(bool grabMode, float r, float3 origin, bool allLeaves = false)
   {
     auto t0 = std::chrono::steady_clock::now();
@@ -1069,13 +1068,16 @@ private:
         if (tree->leaves[li].ownedVerts.size())
           dabLeaves_.append(li);
     } else if (grabMode) {
-      if (!grabPinned_) {
-        tree->query(origin, r, grabLeaves_);
-        grabPinned_ = true;
-      }
-      for (int li : grabLeaves_) {
-        dabLeaves_.append(li);
-      }
+      tree->query(origin, r, dabLeaves_);
+      util::Set<int> seen;
+      for (int li : grabLeaves_)
+        seen.add(li);
+      for (int li : dabLeaves_)
+        if (!seen.contains(li)) {
+          grabLeaves_.append(li);
+          seen.add(li);
+        }
+      dabLeaves_ = grabLeaves_;
     } else {
       tree->query(origin, r, dabLeaves_);
     }
@@ -1573,7 +1575,6 @@ private:
   bool strokeWroteCo_ = false;
   bool strokeWroteMask_ = false;
 
-  bool grabPinned_ = false;
   Vector<int> grabLeaves_;
 };
 

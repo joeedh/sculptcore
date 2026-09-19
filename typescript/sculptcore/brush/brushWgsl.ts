@@ -234,7 +234,10 @@ fn brush_sample_tex(co: vec3<f32>, no: vec3<f32>) -> f32 {
 }
 
 fn brush_strength(p: vec3<f32>) -> f32 {
-  let sb_t = 1.0 - min(brush_falloff_dist(p - ctx_u.surfacePos), 1.0);
+  let sb_delta = p - ctx_u.surfacePos;
+  let sb_dist = brush_falloff_dist(sb_delta);
+  if (brush_u.radius <= 0.0 || sb_dist > 1.0 || (brush_u.falloff_shape == 2u && length(sb_delta) > brush_u.radius)) { return 0.0; }
+  let sb_t = 1.0 - sb_dist;
   let sb_s = brush_u.strength * brush_falloff(sb_t) * brush_sample_tex(p, ctx_u.surfaceNo);
   return select(sb_s, -sb_s, brush_u.invert != 0u);
 }
@@ -535,7 +538,10 @@ fn brush_sample_tex(co: vec3<f32>, no: vec3<f32>) -> f32 {
 }
 
 fn brush_strength(p: vec3<f32>) -> f32 {
-  let sb_t = 1.0 - min(brush_falloff_dist(p - ctx_u.surfacePos), 1.0);
+  let sb_delta = p - ctx_u.surfacePos;
+  let sb_dist = brush_falloff_dist(sb_delta);
+  if (brush_u.radius <= 0.0 || sb_dist > 1.0 || (brush_u.falloff_shape == 2u && length(sb_delta) > brush_u.radius)) { return 0.0; }
+  let sb_t = 1.0 - sb_dist;
   let sb_s = brush_u.strength * brush_falloff(sb_t) * brush_sample_tex(p, ctx_u.surfaceNo);
   return select(sb_s, -sb_s, brush_u.invert != 0u);
 }
@@ -842,7 +848,10 @@ fn brush_sample_tex(co: vec3<f32>, no: vec3<f32>) -> f32 {
 }
 
 fn brush_strength(p: vec3<f32>) -> f32 {
-  let sb_t = 1.0 - min(brush_falloff_dist(p - ctx_u.surfacePos), 1.0);
+  let sb_delta = p - ctx_u.surfacePos;
+  let sb_dist = brush_falloff_dist(sb_delta);
+  if (brush_u.radius <= 0.0 || sb_dist > 1.0 || (brush_u.falloff_shape == 2u && length(sb_delta) > brush_u.radius)) { return 0.0; }
+  let sb_t = 1.0 - sb_dist;
   let sb_s = brush_u.strength * brush_falloff(sb_t) * brush_sample_tex(p, ctx_u.surfaceNo);
   return select(sb_s, -sb_s, brush_u.invert != 0u);
 }
@@ -1110,7 +1119,10 @@ fn brush_sample_tex(co: vec3<f32>, no: vec3<f32>) -> f32 {
 }
 
 fn brush_strength(p: vec3<f32>) -> f32 {
-  let sb_t = 1.0 - min(brush_falloff_dist(p - ctx_u.surfacePos), 1.0);
+  let sb_delta = p - ctx_u.surfacePos;
+  let sb_dist = brush_falloff_dist(sb_delta);
+  if (brush_u.radius <= 0.0 || sb_dist > 1.0 || (brush_u.falloff_shape == 2u && length(sb_delta) > brush_u.radius)) { return 0.0; }
+  let sb_t = 1.0 - sb_dist;
   let sb_s = brush_u.strength * brush_falloff(sb_t) * brush_sample_tex(p, ctx_u.surfaceNo);
   return select(sb_s, -sb_s, brush_u.invert != 0u);
 }
@@ -1374,7 +1386,10 @@ fn brush_sample_tex(co: vec3<f32>, no: vec3<f32>) -> f32 {
 }
 
 fn brush_strength(p: vec3<f32>) -> f32 {
-  let sb_t = 1.0 - min(brush_falloff_dist(p - ctx_u.surfacePos), 1.0);
+  let sb_delta = p - ctx_u.surfacePos;
+  let sb_dist = brush_falloff_dist(sb_delta);
+  if (brush_u.radius <= 0.0 || sb_dist > 1.0 || (brush_u.falloff_shape == 2u && length(sb_delta) > brush_u.radius)) { return 0.0; }
+  let sb_t = 1.0 - sb_dist;
   let sb_s = brush_u.strength * brush_falloff(sb_t) * brush_sample_tex(p, ctx_u.surfaceNo);
   return select(sb_s, -sb_s, brush_u.invert != 0u);
 }
@@ -1643,7 +1658,10 @@ fn brush_sample_tex(co: vec3<f32>, no: vec3<f32>) -> f32 {
 }
 
 fn brush_strength(p: vec3<f32>) -> f32 {
-  let sb_t = 1.0 - min(brush_falloff_dist(p - ctx_u.surfacePos), 1.0);
+  let sb_delta = p - ctx_u.surfacePos;
+  let sb_dist = brush_falloff_dist(sb_delta);
+  if (brush_u.radius <= 0.0 || sb_dist > 1.0 || (brush_u.falloff_shape == 2u && length(sb_delta) > brush_u.radius)) { return 0.0; }
+  let sb_t = 1.0 - sb_dist;
   let sb_s = brush_u.strength * brush_falloff(sb_t) * brush_sample_tex(p, ctx_u.surfaceNo);
   return select(sb_s, -sb_s, brush_u.invert != 0u);
 }
@@ -1979,7 +1997,10 @@ fn brush_sample_tex(co: vec3<f32>, no: vec3<f32>) -> f32 {
 }
 
 fn brush_strength(p: vec3<f32>) -> f32 {
-  let sb_t = 1.0 - min(brush_falloff_dist(p - ctx_u.surfacePos), 1.0);
+  let sb_delta = p - ctx_u.surfacePos;
+  let sb_dist = brush_falloff_dist(sb_delta);
+  if (brush_u.radius <= 0.0 || sb_dist > 1.0 || (brush_u.falloff_shape == 2u && length(sb_delta) > brush_u.radius)) { return 0.0; }
+  let sb_t = 1.0 - sb_dist;
   let sb_s = brush_u.strength * brush_falloff(sb_t) * brush_sample_tex(p, ctx_u.surfaceNo);
   return select(sb_s, -sb_s, brush_u.invert != 0u);
 }
@@ -2238,7 +2259,10 @@ fn brush_sample_tex(co: vec3<f32>, no: vec3<f32>) -> f32 {
 }
 
 fn brush_strength(p: vec3<f32>) -> f32 {
-  let sb_t = 1.0 - min(brush_falloff_dist(p - ctx_u.surfacePos), 1.0);
+  let sb_delta = p - ctx_u.surfacePos;
+  let sb_dist = brush_falloff_dist(sb_delta);
+  if (brush_u.radius <= 0.0 || sb_dist > 1.0 || (brush_u.falloff_shape == 2u && length(sb_delta) > brush_u.radius)) { return 0.0; }
+  let sb_t = 1.0 - sb_dist;
   let sb_s = brush_u.strength * brush_falloff(sb_t) * brush_sample_tex(p, ctx_u.surfaceNo);
   return select(sb_s, -sb_s, brush_u.invert != 0u);
 }
@@ -2548,7 +2572,10 @@ fn brush_sample_tex(co: vec3<f32>, no: vec3<f32>) -> f32 {
 }
 
 fn brush_strength(p: vec3<f32>) -> f32 {
-  let sb_t = 1.0 - min(brush_falloff_dist(p - ctx_u.surfacePos), 1.0);
+  let sb_delta = p - ctx_u.surfacePos;
+  let sb_dist = brush_falloff_dist(sb_delta);
+  if (brush_u.radius <= 0.0 || sb_dist > 1.0 || (brush_u.falloff_shape == 2u && length(sb_delta) > brush_u.radius)) { return 0.0; }
+  let sb_t = 1.0 - sb_dist;
   let sb_s = brush_u.strength * brush_falloff(sb_t) * brush_sample_tex(p, ctx_u.surfaceNo);
   return select(sb_s, -sb_s, brush_u.invert != 0u);
 }
@@ -2814,7 +2841,10 @@ fn brush_sample_tex(co: vec3<f32>, no: vec3<f32>) -> f32 {
 }
 
 fn brush_strength(p: vec3<f32>) -> f32 {
-  let sb_t = 1.0 - min(brush_falloff_dist(p - ctx_u.surfacePos), 1.0);
+  let sb_delta = p - ctx_u.surfacePos;
+  let sb_dist = brush_falloff_dist(sb_delta);
+  if (brush_u.radius <= 0.0 || sb_dist > 1.0 || (brush_u.falloff_shape == 2u && length(sb_delta) > brush_u.radius)) { return 0.0; }
+  let sb_t = 1.0 - sb_dist;
   let sb_s = brush_u.strength * brush_falloff(sb_t) * brush_sample_tex(p, ctx_u.surfaceNo);
   return select(sb_s, -sb_s, brush_u.invert != 0u);
 }
@@ -3115,7 +3145,10 @@ fn brush_sample_tex(co: vec3<f32>, no: vec3<f32>) -> f32 {
 }
 
 fn brush_strength(p: vec3<f32>) -> f32 {
-  let sb_t = 1.0 - min(brush_falloff_dist(p - ctx_u.surfacePos), 1.0);
+  let sb_delta = p - ctx_u.surfacePos;
+  let sb_dist = brush_falloff_dist(sb_delta);
+  if (brush_u.radius <= 0.0 || sb_dist > 1.0 || (brush_u.falloff_shape == 2u && length(sb_delta) > brush_u.radius)) { return 0.0; }
+  let sb_t = 1.0 - sb_dist;
   let sb_s = brush_u.strength * brush_falloff(sb_t) * brush_sample_tex(p, ctx_u.surfaceNo);
   return select(sb_s, -sb_s, brush_u.invert != 0u);
 }
@@ -3377,7 +3410,10 @@ fn brush_sample_tex(co: vec3<f32>, no: vec3<f32>) -> f32 {
 }
 
 fn brush_strength(p: vec3<f32>) -> f32 {
-  let sb_t = 1.0 - min(brush_falloff_dist(p - ctx_u.surfacePos), 1.0);
+  let sb_delta = p - ctx_u.surfacePos;
+  let sb_dist = brush_falloff_dist(sb_delta);
+  if (brush_u.radius <= 0.0 || sb_dist > 1.0 || (brush_u.falloff_shape == 2u && length(sb_delta) > brush_u.radius)) { return 0.0; }
+  let sb_t = 1.0 - sb_dist;
   let sb_s = brush_u.strength * brush_falloff(sb_t) * brush_sample_tex(p, ctx_u.surfaceNo);
   return select(sb_s, -sb_s, brush_u.invert != 0u);
 }
@@ -3639,7 +3675,10 @@ fn brush_sample_tex(co: vec3<f32>, no: vec3<f32>) -> f32 {
 }
 
 fn brush_strength(p: vec3<f32>) -> f32 {
-  let sb_t = 1.0 - min(brush_falloff_dist(p - ctx_u.surfacePos), 1.0);
+  let sb_delta = p - ctx_u.surfacePos;
+  let sb_dist = brush_falloff_dist(sb_delta);
+  if (brush_u.radius <= 0.0 || sb_dist > 1.0 || (brush_u.falloff_shape == 2u && length(sb_delta) > brush_u.radius)) { return 0.0; }
+  let sb_t = 1.0 - sb_dist;
   let sb_s = brush_u.strength * brush_falloff(sb_t) * brush_sample_tex(p, ctx_u.surfaceNo);
   return select(sb_s, -sb_s, brush_u.invert != 0u);
 }
@@ -3907,7 +3946,10 @@ fn brush_sample_tex(co: vec3<f32>, no: vec3<f32>) -> f32 {
 }
 
 fn brush_strength(p: vec3<f32>) -> f32 {
-  let sb_t = 1.0 - min(brush_falloff_dist(p - ctx_u.surfacePos), 1.0);
+  let sb_delta = p - ctx_u.surfacePos;
+  let sb_dist = brush_falloff_dist(sb_delta);
+  if (brush_u.radius <= 0.0 || sb_dist > 1.0 || (brush_u.falloff_shape == 2u && length(sb_delta) > brush_u.radius)) { return 0.0; }
+  let sb_t = 1.0 - sb_dist;
   let sb_s = brush_u.strength * brush_falloff(sb_t) * brush_sample_tex(p, ctx_u.surfaceNo);
   return select(sb_s, -sb_s, brush_u.invert != 0u);
 }
@@ -4150,7 +4192,10 @@ fn brush_sample_tex(co: vec3<f32>, no: vec3<f32>) -> f32 {
 }
 
 fn brush_strength(p: vec3<f32>) -> f32 {
-  let sb_t = 1.0 - min(brush_falloff_dist(p - ctx_u.surfacePos), 1.0);
+  let sb_delta = p - ctx_u.surfacePos;
+  let sb_dist = brush_falloff_dist(sb_delta);
+  if (brush_u.radius <= 0.0 || sb_dist > 1.0 || (brush_u.falloff_shape == 2u && length(sb_delta) > brush_u.radius)) { return 0.0; }
+  let sb_t = 1.0 - sb_dist;
   let sb_s = brush_u.strength * brush_falloff(sb_t) * brush_sample_tex(p, ctx_u.surfaceNo);
   return select(sb_s, -sb_s, brush_u.invert != 0u);
 }
@@ -4403,7 +4448,10 @@ fn brush_sample_tex(co: vec3<f32>, no: vec3<f32>) -> f32 {
 }
 
 fn brush_strength(p: vec3<f32>) -> f32 {
-  let sb_t = 1.0 - min(brush_falloff_dist(p - ctx_u.surfacePos), 1.0);
+  let sb_delta = p - ctx_u.surfacePos;
+  let sb_dist = brush_falloff_dist(sb_delta);
+  if (brush_u.radius <= 0.0 || sb_dist > 1.0 || (brush_u.falloff_shape == 2u && length(sb_delta) > brush_u.radius)) { return 0.0; }
+  let sb_t = 1.0 - sb_dist;
   let sb_s = brush_u.strength * brush_falloff(sb_t) * brush_sample_tex(p, ctx_u.surfaceNo);
   return select(sb_s, -sb_s, brush_u.invert != 0u);
 }
@@ -4672,7 +4720,10 @@ fn brush_sample_tex(co: vec3<f32>, no: vec3<f32>) -> f32 {
 }
 
 fn brush_strength(p: vec3<f32>) -> f32 {
-  let sb_t = 1.0 - min(brush_falloff_dist(p - ctx_u.surfacePos), 1.0);
+  let sb_delta = p - ctx_u.surfacePos;
+  let sb_dist = brush_falloff_dist(sb_delta);
+  if (brush_u.radius <= 0.0 || sb_dist > 1.0 || (brush_u.falloff_shape == 2u && length(sb_delta) > brush_u.radius)) { return 0.0; }
+  let sb_t = 1.0 - sb_dist;
   let sb_s = brush_u.strength * brush_falloff(sb_t) * brush_sample_tex(p, ctx_u.surfaceNo);
   return select(sb_s, -sb_s, brush_u.invert != 0u);
 }
@@ -4948,7 +4999,10 @@ fn brush_sample_tex(co: vec3<f32>, no: vec3<f32>) -> f32 {
 }
 
 fn brush_strength(p: vec3<f32>) -> f32 {
-  let sb_t = 1.0 - min(brush_falloff_dist(p - ctx_u.surfacePos), 1.0);
+  let sb_delta = p - ctx_u.surfacePos;
+  let sb_dist = brush_falloff_dist(sb_delta);
+  if (brush_u.radius <= 0.0 || sb_dist > 1.0 || (brush_u.falloff_shape == 2u && length(sb_delta) > brush_u.radius)) { return 0.0; }
+  let sb_t = 1.0 - sb_dist;
   let sb_s = brush_u.strength * brush_falloff(sb_t) * brush_sample_tex(p, ctx_u.surfaceNo);
   return select(sb_s, -sb_s, brush_u.invert != 0u);
 }
@@ -5217,7 +5271,10 @@ fn brush_sample_tex(co: vec3<f32>, no: vec3<f32>) -> f32 {
 }
 
 fn brush_strength(p: vec3<f32>) -> f32 {
-  let sb_t = 1.0 - min(brush_falloff_dist(p - ctx_u.surfacePos), 1.0);
+  let sb_delta = p - ctx_u.surfacePos;
+  let sb_dist = brush_falloff_dist(sb_delta);
+  if (brush_u.radius <= 0.0 || sb_dist > 1.0 || (brush_u.falloff_shape == 2u && length(sb_delta) > brush_u.radius)) { return 0.0; }
+  let sb_t = 1.0 - sb_dist;
   let sb_s = brush_u.strength * brush_falloff(sb_t) * brush_sample_tex(p, ctx_u.surfaceNo);
   return select(sb_s, -sb_s, brush_u.invert != 0u);
 }
@@ -5487,7 +5544,10 @@ fn brush_sample_tex(co: vec3<f32>, no: vec3<f32>) -> f32 {
 }
 
 fn brush_strength(p: vec3<f32>) -> f32 {
-  let sb_t = 1.0 - min(brush_falloff_dist(p - ctx_u.surfacePos), 1.0);
+  let sb_delta = p - ctx_u.surfacePos;
+  let sb_dist = brush_falloff_dist(sb_delta);
+  if (brush_u.radius <= 0.0 || sb_dist > 1.0 || (brush_u.falloff_shape == 2u && length(sb_delta) > brush_u.radius)) { return 0.0; }
+  let sb_t = 1.0 - sb_dist;
   let sb_s = brush_u.strength * brush_falloff(sb_t) * brush_sample_tex(p, ctx_u.surfaceNo);
   return select(sb_s, -sb_s, brush_u.invert != 0u);
 }
@@ -5758,7 +5818,10 @@ fn brush_sample_tex(co: vec3<f32>, no: vec3<f32>) -> f32 {
 }
 
 fn brush_strength(p: vec3<f32>) -> f32 {
-  let sb_t = 1.0 - min(brush_falloff_dist(p - ctx_u.surfacePos), 1.0);
+  let sb_delta = p - ctx_u.surfacePos;
+  let sb_dist = brush_falloff_dist(sb_delta);
+  if (brush_u.radius <= 0.0 || sb_dist > 1.0 || (brush_u.falloff_shape == 2u && length(sb_delta) > brush_u.radius)) { return 0.0; }
+  let sb_t = 1.0 - sb_dist;
   let sb_s = brush_u.strength * brush_falloff(sb_t) * brush_sample_tex(p, ctx_u.surfaceNo);
   return select(sb_s, -sb_s, brush_u.invert != 0u);
 }
@@ -6091,7 +6154,10 @@ fn brush_sample_tex(co: vec3<f32>, no: vec3<f32>) -> f32 {
 }
 
 fn brush_strength(p: vec3<f32>) -> f32 {
-  let sb_t = 1.0 - min(brush_falloff_dist(p - ctx_u.surfacePos), 1.0);
+  let sb_delta = p - ctx_u.surfacePos;
+  let sb_dist = brush_falloff_dist(sb_delta);
+  if (brush_u.radius <= 0.0 || sb_dist > 1.0 || (brush_u.falloff_shape == 2u && length(sb_delta) > brush_u.radius)) { return 0.0; }
+  let sb_t = 1.0 - sb_dist;
   let sb_s = brush_u.strength * brush_falloff(sb_t) * brush_sample_tex(p, ctx_u.surfaceNo);
   return select(sb_s, -sb_s, brush_u.invert != 0u);
 }

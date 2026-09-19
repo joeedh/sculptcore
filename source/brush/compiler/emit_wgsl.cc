@@ -1758,7 +1758,11 @@ struct Emit {
     // brush_sample_tex to keep the module declaration-ordered. Mirrors
     // CommandCtx::strength in brush_command.h.
     write("fn brush_strength(p: vec3<f32>) -> f32 {\n");
-    write("  let sb_t = 1.0 - min(brush_falloff_dist(p - ctx_u.surfacePos), 1.0);\n");
+    write("  let sb_delta = p - ctx_u.surfacePos;\n");
+    write("  let sb_dist = brush_falloff_dist(sb_delta);\n");
+    write("  if (brush_u.radius <= 0.0 || sb_dist > 1.0 || "
+          "(brush_u.falloff_shape == 2u && length(sb_delta) > brush_u.radius)) { return 0.0; }\n");
+    write("  let sb_t = 1.0 - sb_dist;\n");
     write("  let sb_s = brush_u.strength * brush_falloff(sb_t) * brush_sample_tex(p, "
           "ctx_u.surfaceNo);\n");
     write("  return select(sb_s, -sb_s, brush_u.invert != 0u);\n");

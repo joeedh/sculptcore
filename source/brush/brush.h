@@ -947,7 +947,7 @@ struct Brush {
   // Normalized 0..1+ distance from the brush center for a vertex offset
   // `delta = co - surfacePos`, per the active `falloff_shape`. `surfaceNo` is
   // the brush-center surface normal, used only by Box to orient its frame.
-  // Feeds the curve via `t = 1 - min(dist, 1)`. WGSL mirrors this in
+  // Feeds the curve via `t = 1 - dist` inside support. WGSL mirrors this in
   // `brush_falloff_dist`; changing one without the other breaks the
   // CPU/GPU bit-equality contract.
   float falloffDist(float3 delta, float3 surfaceNo) const
@@ -993,11 +993,30 @@ struct Brush {
     return delta.length() * inv_r;
   }
 
+  /** Finite enclosing sphere for ordinary brush falloff support. */
+  float falloffSupportRadius(float r) const
+  {
+    if (falloff_shape == FalloffShape::Cube)
+      return float(double(r) * std::sqrt(3.0));
+    if (falloff_shape == FalloffShape::Box)
+      return float(double(r) * std::hypot(double(falloff_extent[0]),
+                                          double(falloff_extent[1]),
+                                          double(falloff_extent[2])));
+    return r;
+  }
+
+  /** Linear falloff varies along one axis but remains within the brush sphere. */
+  bool insideFalloff(float3 delta, float3 surfaceNo) const
+  {
+    return radius > 0 && falloffDist(delta, surfaceNo) <= 1.0f &&
+           (falloff_shape != FalloffShape::Linear || delta.length() <= radius);
+  }
+
   // Evaluate the active falloff curve at normalized centerwise `t`
   // (1 at center, 0 at radius). Source of truth for the C++ side; the
   // WGSL emitter mirrors the same branches in `brush_falloff`.
   // The Gaussian width (9 in the exponent) hits exp(-9) ~= 1.2e-4 at
-  // the edge, so no hard cutoff is needed. The Curve branch does
+  // the edge; strength() clips outside support. The Curve branch does
   // clamped linear interpolation over `falloff_curve` â€” N-1 segments,
   // index N-1 read directly when t lands exactly at 1.
   float falloffEval(float t) const

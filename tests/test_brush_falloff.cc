@@ -66,5 +66,18 @@ int main()
   test_assert(std::fabs(alongT - 0.5f) < 1e-5f); // in-plane tangent, extent[0]=2
   test_assert(alongTiltN < 1e-2f);               // normal axis, extent[2] huge
 
+  b.falloff_shape = FalloffShape::Spherical;
+  test_assert(b.insideFalloff(float3(1, 0, 0), nrm));
+  test_assert(!b.insideFalloff(float3(std::nextafter(1.0f, 2.0f), 0, 0), nrm));
+  b.falloff_shape = FalloffShape::Cube;
+  test_assert(b.insideFalloff(float3(.9f, .9f, .9f), nrm));
+  test_assert(b.falloffSupportRadius(1) >= float3(.9f, .9f, .9f).length());
+  b.falloff_shape = FalloffShape::Linear;
+  b.falloff_dir = float3(1, 0, 0);
+  test_assert(b.insideFalloff(float3(0, .9f, 0), nrm));
+  test_assert(!b.insideFalloff(float3(0, 1.01f, 0), nrm));
+  b.radius = 0;
+  test_assert(!b.insideFalloff(float3(0.0f), nrm));
+
   return test_end();
 }

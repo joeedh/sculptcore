@@ -1074,7 +1074,11 @@ struct Emit {
           "CtxUniforms* cu, __constant float* lut,\n");
     write("                         __global StrokeSample* sp, __global float* tex, int "
           "w, int h, float3 p) {\n");
-    write("  float t = 1.0f - fmin(sb_falloff_dist(bu, p - cu->surfacePos), 1.0f);\n");
+    write("  float3 delta = p - cu->surfacePos;\n");
+    write("  float dist = sb_falloff_dist(bu, delta);\n");
+    write("  if (bu->radius <= 0.0f || dist > 1.0f || "
+          "(bu->falloff_shape == 2u && length(delta) > bu->radius)) return 0.0f;\n");
+    write("  float t = 1.0f - dist;\n");
     write("  float s = bu->strength * sb_falloff(bu, lut, t) * sb_sample_tex(bu, cu, sp, "
           "tex, w, h, p, cu->surfaceNo);\n");
     write("  return bu->invert != 0u ? -s : s;\n");

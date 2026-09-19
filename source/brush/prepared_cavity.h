@@ -16,7 +16,7 @@ inline bool preparedCavityContact(const Brush &brush,
                                   const float3 &normal)
 {
   if (!unbounded)
-    return brush.falloffDist(point - center, normal) < 1.0f;
+    return brush.insideFalloff(point - center, normal);
   if (brush.unboundedExtent <= 0)
     return true;
   const float cutoff = brush.radius * brush.unboundedExtent;

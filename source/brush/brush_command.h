@@ -312,7 +312,10 @@ template <CommandTypes TYPES> struct CommandCtx : public CommandCtxBase {
    * multiply sampleBrushTex() explicitly to keep texture parity. */
   float strength(float3 co)
   {
-    float t = 1.0f - std::min(brush.falloffDist(co - surfacePos, surfaceNo), 1.0f);
+    const float3 delta = co - surfacePos;
+    if (!brush.insideFalloff(delta, surfaceNo))
+      return 0.0f;
+    float t = 1.0f - brush.falloffDist(delta, surfaceNo);
     float s = brush.strength * brush.falloffEval(t);
     // Node iteration hands kernels every vert of every overlapping leaf, so
     // out-of-radius verts land here with s == 0 — skip the texture eval they

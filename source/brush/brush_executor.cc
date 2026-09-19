@@ -197,7 +197,7 @@ props::ScalarRegistrationResult CommandExecutor::applyResolvedDab(SculptBrushes 
       radius = float(value.value);
     }
   }
-  if (!std::isfinite(radius) || radius < 0 ||
+  if (!std::isfinite(radius) || !std::isfinite(brush->falloffSupportRadius(radius)) || radius < 0 ||
       (radius > 0 && !std::isfinite(1.0f / radius)))
   {
     return fail(PropError::ERROR_INVALID_VALUE, "radius");
@@ -219,12 +219,15 @@ props::ScalarRegistrationResult CommandExecutor::applyResolvedDab(SculptBrushes 
   setGrabAccumAdd(grabAdd);
   dabNodes_.clear();
   if (radius > 0) {
-    if (command.unbounded || command.grabMode || resolvedFalloffNeedsAllNodes(*brush)) {
+    if (command.unbounded) {
       for (auto *node : tree->leaves())
         if (node->data && node->data->unique_verts.size())
           dabNodes_.append(node);
+    } else if (command.grabMode) {
+      const float support = brush->falloffSupportRadius(radius);
+      grabFilterNodes(center, support, support, dabNodes_);
     } else {
-      tree->filterNodes(center, radius, dabNodes_);
+      tree->filterNodes(center, brush->falloffSupportRadius(radius), dabNodes_);
     }
   }
   lastDabNodeCount = int(dabNodes_.size());
@@ -362,9 +365,12 @@ CommandExecutor::applyResolvedProgram(BrushProgram *program,
                                            prepared);
   if (lastRegistration.error != PropError::ERROR_NONE)
     return lastRegistration;
-  bool allLeaves = resolvedFalloffNeedsAllNodes(*brush);
+  const float support = brush->falloffSupportRadius(prepared.radius);
+  if (!std::isfinite(support))
+    return fail(PropError::ERROR_INVALID_VALUE, "falloff support");
+  bool allLeaves = false, hasGrab = false;
   for (size_t i = 0; i < commands.size(); i++) {
-    allLeaves |= commands[i].grabMode && prepared.radii[i] > 0;
+    hasGrab |= commands[i].grabMode && prepared.radii[i] > 0;
     if (!commands[i].unbounded)
       continue;
     lastRegistration =
@@ -387,8 +393,10 @@ CommandExecutor::applyResolvedProgram(BrushProgram *program,
       for (auto *node : tree->leaves())
         if (node->data && node->data->unique_verts.size())
           dabNodes_.append(node);
+    } else if (hasGrab) {
+      grabFilterNodes(center, support, support, dabNodes_);
     } else {
-      tree->filterNodes(center, prepared.radius, dabNodes_);
+      tree->filterNodes(center, support, dabNodes_);
     }
   }
   lastDabNodeCount = int(dabNodes_.size());

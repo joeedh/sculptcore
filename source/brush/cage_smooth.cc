@@ -68,7 +68,7 @@ int CageSmoothSession::dabResolved(int tool,
   for (const auto &value : prepared.values())
     if (value.name == string("radius"))
       radius = float(value.value);
-  if (!std::isfinite(radius) || radius < 0 ||
+  if (!std::isfinite(radius) || !std::isfinite(brush->falloffSupportRadius(radius)) || radius < 0 ||
       (radius > 0 && !std::isfinite(1.0f / radius)))
     return -1;
   if (validateOnly)
@@ -80,13 +80,8 @@ int CageSmoothSession::dabResolved(int tool,
   brush->reproject_uvs = false;
   dabGridsOut_.clear();
   if (radius > 0) {
-    const float row[4] = {center[0], center[1], center[2], radius};
-    if (resolvedFalloffNeedsAllNodes(*brush)) {
-      for (int grid = 0; grid < int(gridVert_.size()); grid++)
-        dabGridsOut_.append(grid);
-    } else {
-      mr->dabGrids(level, row, 1, dabGridsOut_);
-    }
+    const float row[4] = {center[0], center[1], center[2], brush->falloffSupportRadius(radius)};
+    mr->dabGrids(level, row, 1, dabGridsOut_);
   }
   if (!dabGridsOut_.size())
     return 0;

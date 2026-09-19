@@ -393,13 +393,6 @@ bool resolvedFalloffSupported(const Brush &brush)
   return true;
 }
 
-bool resolvedFalloffNeedsAllNodes(const Brush &brush)
-{
-  return brush.falloff_shape != FalloffShape::Spherical ||
-         brush.falloff_kind == FalloffKind::Gaussian ||
-         (brush.falloff_kind == FalloffKind::Curve && brush.falloff_curve[0] != 0);
-}
-
 bool resolvedFalloffNormalSupported(const Brush &brush, float x, float y, float z)
 {
   if (brush.falloff_shape != FalloffShape::Box)

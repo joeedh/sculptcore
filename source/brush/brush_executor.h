@@ -609,12 +609,9 @@ public:
    *
    * Such a stroke only ever moves verts within the falloff radius of its FIXED
    * anchor (it re-bases from each vert's stroke-start position), so the leaves
-   * it needs are exactly the ones its first dab saw â€” including the border
-   * leaves that draw replicas, whose AABBs already touch that sphere. Pin that
-   * set for the stroke instead of re-filtering: the leaves deform away from the
-   * anchor as the drag grows, and the old fix for that (widen the filter by the
-   * drag) made every dab stamp, run, re-normal and re-upload the whole swept
-   * region â€” per-dab cost growing with the drag for no extra coverage.
+   * it needs include the first dab's leaves and newly reached support when
+   * radius or symmetry changes. Retain reached leaves as they deform away from
+   * the anchor; querying the drag-swept region would grow cost with drag distance.
    *
    * `hostRadius` is what the host asked for; it is only used by the dyntopo
    * fallback, which cannot pin anything. */
@@ -640,18 +637,19 @@ public:
         break;
       }
     }
-    if (reg && reg->radius >= pinRadius) {
-      nodes.clear();
-      for (int id : reg->nodeIds) {
-        if (spatial::SpatialNode *n = tree->node_from_id(id)) {
-          nodes.append(n);
-        }
-      }
-      return;
-    }
-
-    // First dab of this symmetry image, or its radius grew (pressure dynamics).
+    // Query new support and retain moved leaves from every symmetry image.
+    // Radius growth must not discard leaves that already left the anchor.
     tree->filterNodes(center, pinRadius, nodes);
+    util::Set<int> seen;
+    for (auto *node : nodes)
+      seen.add(node->id);
+    for (const auto &region : grabRegions_)
+      for (int id : region.nodeIds)
+        if (!seen.contains(id))
+          if (auto *node = tree->node_from_id(id)) {
+            nodes.append(node);
+            seen.add(id);
+          }
     if (!reg) {
       // One entry per symmetry image; more than that means the "anchor" is
       // drifting, so stop caching rather than grow without bound.

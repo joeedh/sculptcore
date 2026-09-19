@@ -18,7 +18,6 @@ enum class ScalarSource { Authored, RawStandalone };
 
 /** Validate falloff configuration before preparing or publishing a dab. */
 bool resolvedFalloffSupported(const Brush &brush);
-bool resolvedFalloffNeedsAllNodes(const Brush &brush);
 bool resolvedFalloffNormalSupported(const Brush &brush, float x, float y, float z);
 
 /** Mesh execution supports materialized numeric attributes; grids stay restricted. */
