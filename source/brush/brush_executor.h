@@ -219,9 +219,11 @@ public:
    * is the primary. */
   float3 imageSign_{1.0f, 1.0f, 1.0f};
   bool imageIsMirror_ = false;
-  /** Scratch for resolvePlaneFrame: the wider gather candidates, and the
-   * re-gathered dab region when the centre moved off the cursor. */
+  /** Scratch for resolvePlaneFrame: the wider gather candidates, the per-node
+   * gather partials, and the re-gathered dab region when the centre moved off
+   * the cursor. */
   Vector<spatial::SpatialNode *> planeQueryNodes_;
+  Vector<PlaneFrameAccum> planeAccums_;
   Vector<spatial::SpatialNode *> planeFrameNodes_;
   /** What the most recent plane-frame substitution did (tests / HUD): the
    * cursor it started from, the frame the kernel ran with, and whether one
@@ -564,13 +566,9 @@ public:
     const float rMax = std::fmax(rN, rC);
     const bool fromBase = nonAccum && cmd.accumulable && !cmd.relaxesBase;
 
-    // updateQueries() after a dab skips the normal phase, so an accumulating
-    // AREA query would otherwise average stale normals over everything the
-    // stroke already moved. The refresh is incremental (dirty leaves only).
-    if (!fromBase && p.normal == PlaneNormalMode::Area) {
-      tree->updateNormals();
-    }
-
+    // Normals are whatever the frame cadence left (updateQueries() skips the
+    // normal phase): Blender's calc_area_normal reads the draw update's
+    // normals too, so an accumulating gather lags one frame there as well.
     std::span<spatial::SpatialNode *> cand = nodes;
     if (rMax > brush->falloffSupportRadius(r)) {
       planeQueryNodes_.clear();
@@ -599,19 +597,32 @@ public:
       }
     }
 
+    // One partial per node, gathered in parallel like the kernel that follows
+    // and reduced in node order, so the result is run-deterministic.
     accum.begin(cursor, p.viewAxis, rN, rC);
-    for (auto *node : cand) {
-      for (int v : node->data->unique_verts) {
-        float3 co = m->v.co[v];
-        float3 no = m->v.no[v];
-        if (dispGen && dispGen->safe_get(v) == int(strokeGen)) {
-          co -= dispVec->safe_get(v);
-          if (origNo) {
-            no = origNo->safe_get(v);
+    planeAccums_.resize(cand.size());
+    litestl::task::parallel_for(
+        util::IndexRange(cand.size()),
+        [&](util::IndexRange range) {
+          for (int i : range) {
+            PlaneFrameAccum &part = planeAccums_[i];
+            part.begin(cursor, p.viewAxis, rN, rC);
+            for (int v : cand[i]->data->unique_verts) {
+              float3 co = m->v.co[v];
+              float3 no = m->v.no[v];
+              if (dispGen && dispGen->safe_get(v) == int(strokeGen)) {
+                co -= dispVec->safe_get(v);
+                if (origNo) {
+                  no = origNo->safe_get(v);
+                }
+              }
+              part.add(co, no);
+            }
           }
-        }
-        accum.add(co, no);
-      }
+        },
+        1);
+    for (const PlaneFrameAccum &part : planeAccums_) {
+      accum.merge(part);
     }
   }
 

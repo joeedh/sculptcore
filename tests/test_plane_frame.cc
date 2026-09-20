@@ -631,7 +631,8 @@ int main()
 
   // (d') the same on a bump the stroke scrapes flat: non-accumulate keeps the
   // stroke-start normals (`.brush.orig.no` is stamped), accumulate reads the
-  // flattened surface and its AREA normal changes.
+  // flattened surface and its AREA normal changes. The gather takes normals
+  // at the host's cadence (a frame's updateNormals between dabs here).
   for (int nonAccum = 0; nonAccum < 2; nonAccum++) {
     Fixture f;
     const float h = 0.06f, sigma = 0.04f;
@@ -646,6 +647,7 @@ int main()
     f.dab(cursor, float3(0, 0, 1));
     const float3 n1 = f.exec->lastPlaneNormal, c1 = f.exec->lastPlaneCenter;
     for (int i = 0; i < 4; i++) {
+      f.scene.tree->updateNormals();
       f.dab(cursor, float3(0, 0, 1));
     }
     const float3 n5 = f.exec->lastPlaneNormal, c5 = f.exec->lastPlaneCenter;

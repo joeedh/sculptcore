@@ -753,7 +753,6 @@ struct GridBrushExecutor {
     }
     grabLeaves_.clear();
     planeFrameState_.reset();
-    planeStale_.clear();
     imageSign_ = float3(1.0f, 1.0f, 1.0f);
     imageIsMirror_ = false;
     if (brush) {
@@ -1165,8 +1164,8 @@ private:
    * twin of CommandExecutor::queryPlaneFrameArea. Positions come from the
    * stroke-start base when non-accumulating; normals are always the domain's
    * current ones (no orig-normal stamp exists on grids — a documented gap),
-   * refreshed over what the stroke moved since the last gather when the
-   * host defers normals. */
+   * at whatever cadence the host refreshes them — Blender's own gather reads
+   * the draw update's normals the same way. */
   void
   queryPlaneFrameArea(brush_command &cmd, const float3 &cursor, PlaneFrameAccum &accum)
   {
@@ -1177,14 +1176,6 @@ private:
     const float rMax = std::fmax(rN, rC);
     const bool fromBase = nonAccum && cmd.accumulable && !cmd.relaxesBase;
 
-    if (p.normal == PlaneNormalMode::Area && planeStale_.size() > 0) {
-      auto tn = std::chrono::steady_clock::now();
-      domain->refreshNormals(
-          std::span<const int>(planeStale_.data(), planeStale_.size()));
-      stats.normalsMs += msSince(tn);
-      planeStale_.clear();
-    }
-
     std::span<const int> cand(dabLeaves_.data(), dabLeaves_.size());
     if (rMax > brush->falloffSupportRadius(r)) {
       planeQueryLeaves_.clear();
@@ -1192,15 +1183,28 @@ private:
       cand = std::span<const int>(planeQueryLeaves_.data(), planeQueryLeaves_.size());
     }
 
+    // One partial per leaf, gathered in parallel and reduced in leaf order
+    // (run-deterministic).
     accum.begin(cursor, p.viewAxis, rN, rC);
-    for (int li : cand) {
-      for (int v : tree->leaves[li].ownedVerts) {
-        float3 co = domain->pos()[v];
-        if (fromBase && dispGen_.safe_get(v) == int(strokeGen)) {
-          co -= dispVec_.safe_get(v);
-        }
-        accum.add(co, domain->no[v]);
-      }
+    planeAccums_.resize(cand.size());
+    task::parallel_for(
+        util::IndexRange(cand.size()),
+        [&](util::IndexRange range) {
+          for (int i : range) {
+            PlaneFrameAccum &part = planeAccums_[i];
+            part.begin(cursor, p.viewAxis, rN, rC);
+            for (int v : tree->leaves[cand[i]].ownedVerts) {
+              float3 co = domain->pos()[v];
+              if (fromBase && dispGen_.safe_get(v) == int(strokeGen)) {
+                co -= dispVec_.safe_get(v);
+              }
+              part.add(co, domain->no[v]);
+            }
+          }
+        },
+        1);
+    for (const PlaneFrameAccum &part : planeAccums_) {
+      accum.merge(part);
     }
   }
 
@@ -1570,16 +1574,6 @@ private:
           pendingNormals_.append(v);
         }
       }
-      // An accumulating AREA gather needs this dab's normals before the
-      // host's flush arrives; the flush itself stays the host's (it mirrors
-      // the flushed set), so the gather refreshes from its own list.
-      if (planeFrame_.active() && planeFrame_.normal == PlaneNormalMode::Area &&
-          !nonAccum)
-      {
-        for (int v : dabMoved_) {
-          planeStale_.append(v);
-        }
-      }
     } else {
       auto tn = std::chrono::steady_clock::now();
       domain->refreshNormals(std::span<const int>(dabMoved_.data(), dabMoved_.size()));
@@ -1739,12 +1733,11 @@ private:
   Vector<int> dabLeaves_;
   Vector<GridExecNode *> nodePtrs_;
   Vector<int> dabMoved_;
-  /** Plane-frame scratch: the wider gather candidates, the cursor-centred
-   * leaf set saved across a re-gather, and the verts moved since the last
-   * gather while normals are deferred. */
+  /** Plane-frame scratch: the wider gather candidates, the per-leaf gather
+   * partials, and the cursor-centred leaf set saved across a re-gather. */
   Vector<int> planeQueryLeaves_;
+  Vector<PlaneFrameAccum> planeAccums_;
   Vector<int> planeSavedLeaves_;
-  Vector<int> planeStale_;
   Vector<uint32_t> dabStamp_;
   uint32_t dabSeq_ = 0;
   /** Face-stage touched sets, the grid-granular twins of dabMoved_ /

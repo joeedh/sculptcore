@@ -173,8 +173,10 @@ The TS bridge does this in `resolveDabPolicy` / `resolveToolDabPolicy`
   driver that runs symmetry images itself must also declare each image
   (`setImageSign(sx, sy, sz, isMirror)` before its dab, primary first): a
   mirror dab takes the reflected primary frame rather than its own gather. The
-  batch c-api does this from its `signs` rows. The GPU (WGSL) path ignores the
-  policy and marshals the host frame as-is.
+  batch c-api does this from its `signs` rows. An accumulating AREA gather
+  reads normals at the host's refresh cadence (the per-frame update; Blender's
+  gather reads its draw update's normals the same way), not per dab. The GPU
+  (WGSL) path ignores the policy and marshals the host frame as-is.
 - **radius** — the falloff radius, in world/object units, written to
   `wasmBrush.radius`. A screen-px brush must be converted at the dab
   (project the center, project center+1px, unproject, take the distance).

@@ -124,10 +124,12 @@ struct PlaneFrameAccum {
    * stroke-start when non-accumulating). Sphere metric from the cursor. */
   void add(const float3 &co, const float3 &no)
   {
-    const float d = (co - cursor).length();
-    if (d > rMax) {
+    const float3 off = co - cursor;
+    const float d2 = off.dot(off);
+    if (d2 > rMax * rMax) {
       return;
     }
+    const float d = std::sqrt(d2);
     const int flip = viewAxis.dot(no) <= 0.0f ? 1 : 0;
     if (d <= rC) {
       // `area_center_calc_weighted`: the sample pulled toward the cursor.
@@ -137,6 +139,18 @@ struct PlaneFrameAccum {
     if (d <= rN) {
       nos[flip] += no * planeFrameWeight(d, rNinv);
       countNo[flip] += 1;
+    }
+  }
+
+  /** Fold a partial gather in (per-node partials, reduced in node order so
+   * a threaded gather stays deterministic). */
+  void merge(const PlaneFrameAccum &b)
+  {
+    for (int i = 0; i < 2; i++) {
+      cos[i] += b.cos[i];
+      countCo[i] += b.countCo[i];
+      nos[i] += b.nos[i];
+      countNo[i] += b.countNo[i];
     }
   }
 
