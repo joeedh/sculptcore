@@ -29,6 +29,7 @@
 #include "brushes/all.h"
 #include "capture_policy.h"
 #include "grid_attr_bind.h"
+#include "plane_frame.h"
 #include "prepared_cavity.h"
 
 #include "spatial/spatial.h"
@@ -484,6 +485,17 @@ struct GridBrushExecutor {
   bool anchoredGrab = true;
   uint32_t dabGen = 0;
   uint32_t strokeGen = 0;
+  /** Plane-frame policy + per-stroke memory and the symmetry image in
+   * flight, mirroring CommandExecutor (plane_frame.h). Sticky: the host
+   * pushes the policy before every stroke. */
+  PlaneFramePolicy planeFrame_;
+  PlaneFrameState planeFrameState_;
+  float3 imageSign_{1.0f, 1.0f, 1.0f};
+  bool imageIsMirror_ = false;
+  bool lastPlaneResolved = false;
+  float3 lastPlaneCursor{};
+  float3 lastPlaneNormal{};
+  float3 lastPlaneCenter{};
   /** Defer the touched-set normal refresh to flushNormals() (host frame
    * cadence) instead of paying it per dab. Closely-spaced dabs overlap ~90%,
    * so per-dab refresh recomputes the same fans many times over — this is
@@ -740,6 +752,10 @@ struct GridBrushExecutor {
       m->dirty = false;
     }
     grabLeaves_.clear();
+    planeFrameState_.reset();
+    planeStale_.clear();
+    imageSign_ = float3(1.0f, 1.0f, 1.0f);
+    imageIsMirror_ = false;
     if (brush) {
       brush->resetStrokePath();
     }
@@ -759,6 +775,52 @@ struct GridBrushExecutor {
     if (!add) {
       dabGen++;
     }
+  }
+
+  /** Push the plane-frame policy for the upcoming stroke — the grids twin of
+   * CommandExecutor::setPlaneFrame (same argument contract). Resets the
+   * stroke's frame memory. */
+  void setPlaneFrame(int normalMode,
+                     int centerMode,
+                     bool originalNormal,
+                     bool originalPlane,
+                     float normalRadiusFactor,
+                     float areaRadiusFactor,
+                     float stabilizeNormal,
+                     float stabilizePlane,
+                     float viewX,
+                     float viewY,
+                     float viewZ)
+  {
+    PlaneFramePolicy p;
+    p.normal = (normalMode >= 0 && normalMode <= int(PlaneNormalMode::Z))
+                   ? PlaneNormalMode(normalMode)
+                   : PlaneNormalMode::Surface;
+    p.center = centerMode == int(PlaneCenterMode::Area) ? PlaneCenterMode::Area
+                                                        : PlaneCenterMode::Cursor;
+    p.originalNormal = originalNormal;
+    p.originalPlane = originalPlane;
+    p.normalRadiusFactor = std::isfinite(normalRadiusFactor) ? normalRadiusFactor : 1.0f;
+    p.areaRadiusFactor = std::isfinite(areaRadiusFactor) ? areaRadiusFactor : 1.0f;
+    p.stabilizeNormal =
+        std::isfinite(stabilizeNormal) ? std::clamp(stabilizeNormal, 0.0f, 1.0f) : 0.0f;
+    p.stabilizePlane =
+        std::isfinite(stabilizePlane) ? std::clamp(stabilizePlane, 0.0f, 1.0f) : 0.0f;
+    float3 axis(viewX, viewY, viewZ);
+    const float len = axis.length();
+    p.viewAxis = (std::isfinite(len) && len > 0.0f) ? axis * (1.0f / len)
+                                                    : float3(0.0f, 0.0f, 1.0f);
+    planeFrame_ = p;
+    planeFrameState_.reset();
+  }
+
+  /** Declare the symmetry image of the next dab(s); see
+   * CommandExecutor::setImageSign. */
+  void setImageSign(float sx, float sy, float sz, bool isMirror)
+  {
+    imageSign_ = float3(
+        sx < 0.0f ? -1.0f : 1.0f, sy < 0.0f ? -1.0f : 1.0f, sz < 0.0f ? -1.0f : 1.0f);
+    imageIsMirror_ = isMirror;
   }
 
   /** One dab of `brushType` at `origin`/`normal`. Returns moved-vert count. */
@@ -1089,6 +1151,127 @@ private:
     return dabLeaves_.size() > 0;
   }
 
+  /** Frame and region saved across a plane-frame substitution and put back
+   * at the end of the stage, so a later stage of the same program starts
+   * from the host's cursor and leaf set as on the mesh path. */
+  struct PlaneFrameScope {
+    bool active = false;
+    bool regathered = false;
+    float3 pos{};
+    float3 no{};
+  };
+
+  /** Area gather for a primary plane dab over the grid domain — the grids
+   * twin of CommandExecutor::queryPlaneFrameArea. Positions come from the
+   * stroke-start base when non-accumulating; normals are always the domain's
+   * current ones (no orig-normal stamp exists on grids — a documented gap),
+   * refreshed over what the stroke moved since the last gather when the
+   * host defers normals. */
+  void
+  queryPlaneFrameArea(brush_command &cmd, const float3 &cursor, PlaneFrameAccum &accum)
+  {
+    const PlaneFramePolicy &p = planeFrame_;
+    const float r = brush->radius;
+    const float rN = r * p.normalRadiusFactor;
+    const float rC = r * p.areaRadiusFactor;
+    const float rMax = std::fmax(rN, rC);
+    const bool fromBase = nonAccum && cmd.accumulable && !cmd.relaxesBase;
+
+    if (p.normal == PlaneNormalMode::Area && planeStale_.size() > 0) {
+      auto tn = std::chrono::steady_clock::now();
+      domain->refreshNormals(
+          std::span<const int>(planeStale_.data(), planeStale_.size()));
+      stats.normalsMs += msSince(tn);
+      planeStale_.clear();
+    }
+
+    std::span<const int> cand(dabLeaves_.data(), dabLeaves_.size());
+    if (rMax > brush->falloffSupportRadius(r)) {
+      planeQueryLeaves_.clear();
+      tree->query(cursor, rMax, planeQueryLeaves_);
+      cand = std::span<const int>(planeQueryLeaves_.data(), planeQueryLeaves_.size());
+    }
+
+    accum.begin(cursor, p.viewAxis, rN, rC);
+    for (int li : cand) {
+      for (int v : tree->leaves[li].ownedVerts) {
+        float3 co = domain->pos()[v];
+        if (fromBase && dispGen_.safe_get(v) == int(strokeGen)) {
+          co -= dispVec_.safe_get(v);
+        }
+        accum.add(co, domain->no[v]);
+      }
+    }
+  }
+
+  /** Substitute the stage's surface frame for a `@planeFrame` command under a
+   * non-default policy — the grids twin of CommandExecutor::resolvePlaneFrame.
+   * Runs at the top of execStage, before capture and the stamp. When the
+   * centre moved off the cursor the leaf set is re-queried around it. Returns
+   * false when the dab must be skipped. */
+  bool resolvePlaneFrame(brush_command &cmd, PlaneFrameScope &scope)
+  {
+    lastPlaneResolved = false;
+    if (!cmd.usesPlaneFrame || !planeFrame_.active() || nodePtrs_.size() == 0 || !tree ||
+        !brush || !domain)
+    {
+      return true;
+    }
+    const PlaneFramePolicy &p = planeFrame_;
+    const float3 cursor = ctx.surfacePos;
+    scope.active = true;
+    scope.pos = ctx.surfacePos;
+    scope.no = ctx.surfaceNo;
+
+    PlaneFrameResolve resolve{p, planeFrameState_};
+    float3 normal, center;
+    if (!(imageIsMirror_ && resolve.mirror(imageSign_, normal, center))) {
+      PlaneFrameAccum accum;
+      const PlaneFrameAccum *accumPtr = nullptr;
+      if (resolve.needsAreaQuery()) {
+        queryPlaneFrameArea(cmd, cursor, accum);
+        accumPtr = &accum;
+      }
+      if (!resolve.primary(ctx.surfaceNo, cursor, accumPtr, normal, center)) {
+        return false;
+      }
+    }
+    ctx.surfaceNo = normal;
+    ctx.surfacePos = center;
+    lastPlaneResolved = true;
+    lastPlaneCursor = cursor;
+    lastPlaneNormal = normal;
+    lastPlaneCenter = center;
+
+    if (p.center == PlaneCenterMode::Area && (center - cursor).length() > 0.0f) {
+      planeSavedLeaves_ = dabLeaves_;
+      const float support =
+          std::fmax(brush->falloffSupportRadius(brush->radius),
+                    cmd.unbounded ? brush->radius * brush->unboundedExtent : 0.0f);
+      queryDabLeaves(false, support, center);
+      scope.regathered = true;
+    }
+    return true;
+  }
+
+  /** Put the host frame and the cursor-centred leaf set back after a
+   * substituted stage. */
+  void restorePlaneFrame(const PlaneFrameScope &scope)
+  {
+    if (!scope.active) {
+      return;
+    }
+    ctx.surfacePos = scope.pos;
+    ctx.surfaceNo = scope.no;
+    if (scope.regathered) {
+      dabLeaves_ = planeSavedLeaves_;
+      nodePtrs_.clear();
+      for (int li : dabLeaves_) {
+        nodePtrs_.append(&nodes_[li]);
+      }
+    }
+  }
+
   /** One kernel stage over the current dabLeaves_/nodePtrs_ set: ctx setup,
    * undo capture, co_prev/disp/automask maintenance, the parallel kernel
    * loop, and folding the stage's writes into the logical dab's dabMoved_
@@ -1102,6 +1285,22 @@ private:
     ctx.surfacePos = origin;
     ctx.surfaceNo = normal;
     ctx.isFirstOfStep = isFirstOfStep;
+
+    // Plane-frame substitution first: it can replace the leaf set, and
+    // everything below must see the final region and frame.
+    PlaneFrameScope planeScope;
+    if (!resolvePlaneFrame(cmd, planeScope)) {
+      restorePlaneFrame(planeScope);
+      return;
+    }
+    struct PlaneFrameRestore {
+      GridBrushExecutor &exec;
+      const PlaneFrameScope &scope;
+      ~PlaneFrameRestore()
+      {
+        exec.restorePlaneFrame(scope);
+      }
+    } planeRestore{*this, planeScope};
 
     // DSL attr manifest: each declared layer routes to a default column,
     // sculpt-layer scratch, or a session store channel (grid_attr_bind.h).
@@ -1371,6 +1570,16 @@ private:
           pendingNormals_.append(v);
         }
       }
+      // An accumulating AREA gather needs this dab's normals before the
+      // host's flush arrives; the flush itself stays the host's (it mirrors
+      // the flushed set), so the gather refreshes from its own list.
+      if (planeFrame_.active() && planeFrame_.normal == PlaneNormalMode::Area &&
+          !nonAccum)
+      {
+        for (int v : dabMoved_) {
+          planeStale_.append(v);
+        }
+      }
     } else {
       auto tn = std::chrono::steady_clock::now();
       domain->refreshNormals(std::span<const int>(dabMoved_.data(), dabMoved_.size()));
@@ -1530,6 +1739,12 @@ private:
   Vector<int> dabLeaves_;
   Vector<GridExecNode *> nodePtrs_;
   Vector<int> dabMoved_;
+  /** Plane-frame scratch: the wider gather candidates, the cursor-centred
+   * leaf set saved across a re-gather, and the verts moved since the last
+   * gather while normals are deferred. */
+  Vector<int> planeQueryLeaves_;
+  Vector<int> planeSavedLeaves_;
+  Vector<int> planeStale_;
   Vector<uint32_t> dabStamp_;
   uint32_t dabSeq_ = 0;
   /** Face-stage touched sets, the grid-granular twins of dabMoved_ /

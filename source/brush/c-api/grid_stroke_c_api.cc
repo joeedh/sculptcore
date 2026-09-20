@@ -124,6 +124,47 @@ void GridStroke_setAnchoredGrab(GridStrokeSession *s, int anchored)
   }
 }
 
+/** Plane-frame policy for the upcoming stroke (brush/plane_frame.h); the
+ * same argument contract as CommandExecutor::setPlaneFrame. Sticky — push
+ * it before every stroke, the default included. */
+void GridStroke_setPlaneFrame(GridStrokeSession *s,
+                              int normalMode,
+                              int centerMode,
+                              int originalNormal,
+                              int originalPlane,
+                              float normalRadiusFactor,
+                              float areaRadiusFactor,
+                              float stabilizeNormal,
+                              float stabilizePlane,
+                              float viewX,
+                              float viewY,
+                              float viewZ)
+{
+  if (s) {
+    s->exec.setPlaneFrame(normalMode,
+                          centerMode,
+                          originalNormal != 0,
+                          originalPlane != 0,
+                          normalRadiusFactor,
+                          areaRadiusFactor,
+                          stabilizeNormal,
+                          stabilizePlane,
+                          viewX,
+                          viewY,
+                          viewZ);
+  }
+}
+
+/** Declare the symmetry image of the next dab(s) for the per-dab entries
+ * (the batch entries tag their own images from the sign rows). */
+void GridStroke_setImageSign(
+    GridStrokeSession *s, float sx, float sy, float sz, int isMirror)
+{
+  if (s) {
+    s->exec.setImageSign(sx, sy, sz, isMirror != 0);
+  }
+}
+
 /** Defer the touched-set normal refresh to GridStroke_flushNormals (host
  * frame cadence — closely-spaced dabs overlap ~90%, so per-dab refresh
  * recomputes the same fans many times). The mesh path's per-frame cadence. */
@@ -364,6 +405,7 @@ static int gridDabInputs(GridStrokeSession *s,
     return result.error == props::PropError::ERROR_NONE ? 0 : -1;
   }
   auto image = [&](float3 center, float3 normal, const float *sign = nullptr) {
+    brush::DabImageScope<brush::GridBrushExecutor> imageScope(s->exec, sign);
     std::optional<brush::DabFrameOverlay> frame;
     if (resolved && sign)
       frame.emplace(*s->exec.brush, sign);

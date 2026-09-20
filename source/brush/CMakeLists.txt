@@ -118,6 +118,8 @@ wasm_add_symbols("
   GridStroke_setMirror
   GridStroke_setNonAccum
   GridStroke_setAnchoredGrab
+  GridStroke_setPlaneFrame
+  GridStroke_setImageSign
   GridStroke_setRenderMatrix
   GridStroke_setDeferNormals
   GridStroke_flushNormals

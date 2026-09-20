@@ -17,6 +17,8 @@
 //   (j) a program restores the cursor frame between sub-commands, on the raw
 //       and the resolved path
 //   (k) the codegen flag reaches the metadata query
+//   (l) the grid executor: the same policy over a multires domain — AREA
+//       frame, data vintage, fixed axes, mirror, skip, and re-gather
 #include "test_util.h"
 
 #include "debug/scene.h"
@@ -24,8 +26,13 @@
 
 #include "brush/brush_executor.h"
 #include "brush/brush_program.h"
+#include "brush/grid_executor.h"
 #include "brush/plane_frame.h"
 #include "mesh/mesh.h"
+#include "mesh/mesh_shapes.h"
+#include "subdiv/grid_domain.h"
+#include "subdiv/grid_tree.h"
+#include "subdiv/multires.h"
 
 #include "litestl/math/vector.h"
 #include "litestl/util/vector.h"
@@ -209,7 +216,270 @@ struct Fixture {
   }
 };
 
+/** Grids twin of Fixture: a sphere-ish cube cage subdivided to `kLevel`,
+ * driven through GridBrushExecutor::applyDab. */
+struct GridFixture {
+  static constexpr int kLevel = 3;
+  Mesh *cage = nullptr;
+  sculptcore::subdiv::Multires mr;
+  sculptcore::subdiv::GridLevelDomain *d = nullptr;
+  Brush brush;
+  std::unique_ptr<GridBrushExecutor> exec;
+  litestl::util::Vector<float3> start;
+  SculptBrushes tool = SculptBrushes::CLAY;
+
+  /** `sphereFac` 1 = the cube's verts pushed onto the sphere. */
+  explicit GridFixture(float sphereFac = 1.0f)
+  {
+    cage = createCube(4, 0.5f, sphereFac);
+    mr.init(*cage, kLevel);
+    d = mr.gridDomain(kLevel);
+    start.resize(d->vertCount());
+    for (int v = 0; v < d->vertCount(); v++) {
+      start[v] = d->pos()[v];
+    }
+  }
+  ~GridFixture()
+  {
+    exec.reset();
+    litestl::alloc::Delete(cage);
+  }
+
+  void
+  setBrush(SculptBrushes t, float radius, float strength, float planeoff, float planeSide)
+  {
+    tool = t;
+    brush.radius = radius;
+    brush.strength = strength;
+    brush.invert = false;
+    brush.planeoff = planeoff;
+    brush.planeSide = planeSide;
+    brush.writeProps();
+  }
+
+  void begin(bool nonAccum)
+  {
+    exec = std::make_unique<GridBrushExecutor>(d, &brush, nullptr);
+    exec->nonAccum = nonAccum;
+    exec->beginStep();
+  }
+
+  void policy(PlaneNormalMode normal,
+              PlaneCenterMode center,
+              float nrf = 1.0f,
+              float arf = 1.0f,
+              float3 view = float3(0.0f, 0.0f, 1.0f))
+  {
+    exec->setPlaneFrame(int(normal),
+                        int(center),
+                        false,
+                        false,
+                        nrf,
+                        arf,
+                        0.0f,
+                        0.0f,
+                        view[0],
+                        view[1],
+                        view[2]);
+  }
+
+  int dab(float3 center, float3 normal)
+  {
+    return exec->applyDab(tool, center, normal);
+  }
+
+  void end()
+  {
+    exec->endStep();
+  }
+
+  int movedCount(float eps = 1e-7f) const
+  {
+    int n = 0;
+    for (int v = 0; v < d->vertCount(); v++) {
+      n += (d->pos()[v] - start[v]).length() > eps;
+    }
+    return n;
+  }
+
+  /** Height of the domain's top along +Z. */
+  float topZ() const
+  {
+    float z = -1e30f;
+    for (int v = 0; v < d->vertCount(); v++) {
+      z = std::fmax(z, d->pos()[v][2]);
+    }
+    return z;
+  }
+};
+
 } // namespace
+
+static void gridCases()
+{
+  const float3 up(0, 0, 1);
+
+  // (l-a) AREA frame on the sphere-ish cube: radial normal at the top, the
+  // centre on the axis and inside, the hit normal ignored.
+  {
+    GridFixture f;
+    const float top = f.topZ();
+    f.setBrush(SculptBrushes::FILL, 0.2f, 1.0f, 0.0f, 1.0f);
+    f.begin(false);
+    f.policy(PlaneNormalMode::Area, PlaneCenterMode::Area);
+    f.dab(float3(0, 0, top), float3(0.3f, 0, 1).normalized());
+    test_assert(f.exec->lastPlaneResolved);
+    const float3 n = f.exec->lastPlaneNormal, c = f.exec->lastPlaneCenter;
+    fprintf(stderr,
+            "(l-a) top=%.4f n=(%.4f %.4f %.4f) c=(%.4f %.4f %.4f)\n",
+            top,
+            n[0],
+            n[1],
+            n[2],
+            c[0],
+            c[1],
+            c[2]);
+    test_assert(angleDeg(n, up) < 0.5f);
+    test_assert(std::fabs(c[0]) < 1e-3f && std::fabs(c[1]) < 1e-3f);
+    test_assert(c[2] < top && c[2] > top - 0.05f);
+    f.end();
+  }
+
+  // (l-d) data vintage: non-accumulate keeps the stroke-start centre while
+  // the clay plane raises the region; accumulate follows it. Grids have no
+  // orig-normal stamp, so the non-accum normal may drift by the refresh.
+  for (int nonAccum = 0; nonAccum < 2; nonAccum++) {
+    GridFixture f;
+    const float top = f.topZ();
+    f.setBrush(SculptBrushes::CLAY, 0.2f, 1.0f, 0.4f, 1.0f);
+    f.begin(nonAccum != 0);
+    f.policy(PlaneNormalMode::Area, PlaneCenterMode::Area);
+    f.dab(float3(0, 0, top), up);
+    const float3 c1 = f.exec->lastPlaneCenter, n1 = f.exec->lastPlaneNormal;
+    f.dab(float3(0, 0, top), up);
+    f.dab(float3(0, 0, top), up);
+    const float3 c3 = f.exec->lastPlaneCenter, n3 = f.exec->lastPlaneNormal;
+    fprintf(stderr,
+            "(l-d) nonAccum=%d c1.z=%.5f c3.z=%.5f n tilt=%.3f deg moved=%d\n",
+            nonAccum,
+            c1[2],
+            c3[2],
+            angleDeg(n1, n3),
+            f.movedCount());
+    test_assert(f.movedCount() > 0);
+    if (nonAccum) {
+      // `pos - disp` recovers the base to within an ulp, not bit-exactly.
+      fprintf(stderr, "(l-d) |c3-c1|=%g\n", (c3 - c1).length());
+      test_assert(near3(c3, c1, 1e-6f));
+      test_assert(angleDeg(n1, n3) < 1.0f);
+    } else {
+      test_assert(c3[2] > c1[2] + 1e-5f);
+    }
+    f.end();
+  }
+
+  // (l-e) fixed axes: the kernel deforms along the requested normal only.
+  {
+    struct Case {
+      PlaneNormalMode mode;
+      float3 view;
+      float3 expect;
+    } cases[] = {
+        {PlaneNormalMode::View, float3(0, 1, 0), float3(0, 1, 0)},
+        {PlaneNormalMode::X, float3(0, 0, 1), float3(1, 0, 0)},
+    };
+    for (const Case &cs : cases) {
+      GridFixture f;
+      const float top = f.topZ();
+      f.setBrush(SculptBrushes::CLAY, 0.2f, 1.0f, 0.4f, 1.0f);
+      f.begin(false);
+      f.policy(cs.mode, PlaneCenterMode::Cursor, 1, 1, cs.view);
+      f.dab(float3(0, 0, top), float3(1, 1, 1).normalized());
+      test_assert(near3(f.exec->lastPlaneNormal, cs.expect, 1e-6f));
+      int moved = 0;
+      bool alongAxis = true;
+      for (int v = 0; v < f.d->vertCount(); v++) {
+        const float3 dv = f.d->pos()[v] - f.start[v];
+        if (dv.length() > 1e-7f) {
+          moved++;
+          const float3 off = dv - cs.expect * dv.dot(cs.expect);
+          alongAxis &= off.length() < 1e-6f;
+        }
+      }
+      fprintf(stderr,
+              "(l-e) mode=%d moved=%d alongAxis=%d\n",
+              int(cs.mode),
+              moved,
+              int(alongAxis));
+      test_assert(moved > 0);
+      test_assert(alongAxis);
+      f.end();
+    }
+  }
+
+  // (l-g) mirror image: the reflected primary frame, no gather of its own.
+  {
+    GridFixture f;
+    const float top = f.topZ();
+    const float3 B = float3(0.5f, 0, top).normalized() * top;
+    const float3 Bm(-B[0], B[1], B[2]);
+    f.setBrush(SculptBrushes::FILL, 0.2f, 0.2f, 0.0f, 1.0f);
+    f.begin(false);
+    f.policy(PlaneNormalMode::Area, PlaneCenterMode::Area);
+    f.exec->setImageSign(1, 1, 1, false);
+    f.dab(B, B.normalized());
+    const float3 nP = f.exec->lastPlaneNormal, cP = f.exec->lastPlaneCenter;
+    f.exec->setImageSign(-1, 1, 1, true);
+    f.dab(Bm, Bm.normalized());
+    const float3 nM = f.exec->lastPlaneNormal, cM = f.exec->lastPlaneCenter;
+    test_assert(nM[0] == -nP[0] && nM[1] == nP[1] && nM[2] == nP[2]);
+    test_assert(cM[0] == -cP[0] && cM[1] == cP[1] && cM[2] == cP[2]);
+    test_assert(near3(f.exec->planeFrameState_.primaryNormal, nP, 0.0f));
+    f.end();
+  }
+
+  // (l-h) empty gather skips the dab.
+  {
+    GridFixture f;
+    const float top = f.topZ();
+    f.setBrush(SculptBrushes::CLAY, 0.2f, 1.0f, 0.4f, 1.0f);
+    f.begin(false);
+    f.policy(PlaneNormalMode::Area, PlaneCenterMode::Cursor, 1e-5f, 1.0f);
+    f.dab(float3(1e-3f, 1e-3f, top), up);
+    test_assert(!f.exec->lastPlaneResolved);
+    test_assert(f.movedCount() == 0);
+    f.end();
+  }
+
+  // (l-c) re-gather: a cursor at the edge of the plain cube's top face, with
+  // a gather that only sees one side, moves the centre; the leaf set follows
+  // it, and the host frame is back afterwards.
+  {
+    GridFixture f(0.0f);
+    f.setBrush(SculptBrushes::CLAY, 0.3f, 1.0f, 0.4f, 1.0f);
+    f.begin(false);
+    f.policy(PlaneNormalMode::Z, PlaneCenterMode::Area);
+    // On the +Z face (z = 0.25 for size 0.5), at its +X edge.
+    f.dab(float3(0.25f, 0, 0.25f), up);
+    const float3 c = f.exec->lastPlaneCenter;
+    float minMovedX = 1e30f;
+    for (int v = 0; v < f.d->vertCount(); v++) {
+      if (f.d->pos()[v][2] - f.start[v][2] > 1e-6f) {
+        minMovedX = std::fmin(minMovedX, f.start[v][0]);
+      }
+    }
+    fprintf(stderr,
+            "(l-c) c=(%.4f %.4f %.4f) min moved x=%.4f\n",
+            c[0],
+            c[1],
+            c[2],
+            minMovedX);
+    test_assert(c[0] < 0.25f - 0.02f);
+    test_assert(minMovedX < c[0] - 0.3f + 0.05f);
+    test_assert(near3(f.exec->ctx.surfacePos, float3(0.25f, 0, 0.25f), 0.0f));
+    f.end();
+  }
+}
 
 int main()
 {
@@ -382,8 +652,12 @@ int main()
     const bool stamped = f.m->v.attrs.has(AttrType::FLOAT3, ".brush.orig.no");
     fprintf(stderr,
             "(d') nonAccum=%d tilt1=%.3f tilt5=%.3f c1.z=%.5f c5.z=%.5f orig.no=%d\n",
-            nonAccum, angleDeg(n1, float3(0, 0, 1)), angleDeg(n5, float3(0, 0, 1)), c1[2],
-            c5[2], int(stamped));
+            nonAccum,
+            angleDeg(n1, float3(0, 0, 1)),
+            angleDeg(n5, float3(0, 0, 1)),
+            c1[2],
+            c5[2],
+            int(stamped));
     test_assert(angleDeg(n1, float3(0, 0, 1)) > 0.5f); // the bump is felt
     if (nonAccum) {
       test_assert(stamped);
@@ -651,6 +925,8 @@ int main()
     test_assert(near3(g.exec->ctx.surfacePos, float3(0, 0, 0), 0.0f));
     g.end();
   }
+
+  gridCases();
 
   return test_end();
 }
