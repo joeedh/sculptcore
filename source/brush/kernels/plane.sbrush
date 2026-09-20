@@ -13,9 +13,15 @@
 // Replaces the old clay.sbrush, whose unconditional `h < 0` push was a
 // fill, not the build-up-above-surface clay the UI expects.
 
+// `@planeFrame`: the executor may resolve surfacePos/surfaceNo per dab from
+// the stroke's plane-frame policy (area normal/centre, view/axis normal, held
+// originals, stabilisation) instead of passing the host's hit frame through.
+// See source/brush/plane_frame.h.
+
 @brush("plane")
 @tool CLAY, SCRAPE, FILL
 @gpu
+@planeFrame
 brush Plane {
   ctx float3 surfacePos;
   ctx float3 surfaceNo;

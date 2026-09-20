@@ -120,6 +120,7 @@ bool CommandExecutor::createPreparedCommand(SculptBrushes type, brush_command &c
       return false;
     candidate = std::move(original);
   }
+  applyPlaneFrameOrigNormals(candidate);
   command = std::move(candidate);
   return true;
 }

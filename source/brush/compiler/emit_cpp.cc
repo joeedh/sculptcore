@@ -2538,6 +2538,11 @@ struct Emit {
     if (brush->isIncremental) {
       write("  def.incremental = true;\n");
     }
+    // `@planeFrame`: the executor may substitute the dab's surfacePos/surfaceNo
+    // with the stroke's plane-frame policy (brush/plane_frame.h).
+    if (brush->usesPlaneFrame) {
+      write("  def.usesPlaneFrame = true;\n");
+    }
     // A `face` stage means the kernel is dispatched per-face, not per-vertex.
     if (brushHasFaceStage(*brush)) {
       write("  def.faceMode = true;\n");

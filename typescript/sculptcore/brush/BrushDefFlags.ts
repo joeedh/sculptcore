@@ -28,5 +28,6 @@ export interface BrushDefFlags {
   writesColor: boolean
   faceMode: boolean
   readsVclass: boolean
+  usesPlaneFrame: boolean
   new (): BrushDefFlags
 }

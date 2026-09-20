@@ -368,6 +368,20 @@ litestl::binding::types::Struct<Brush> *Brush::defineBindings()
     BIND_STRUCT_METHOD(st, setAnchoredGrab, MARGS("anchored"));
     BIND_STRUCT_METHOD(st, setGrabAccumAdd, MARGS("add"));
     BIND_STRUCT_METHOD(st, setStrokeGen, MARGS("gen"));
+    BIND_STRUCT_METHOD(st,
+                       setPlaneFrame,
+                       MARGS("normalMode",
+                             "centerMode",
+                             "originalNormal",
+                             "originalPlane",
+                             "normalRadiusFactor",
+                             "areaRadiusFactor",
+                             "stabilizeNormal",
+                             "stabilizePlane",
+                             "viewX",
+                             "viewY",
+                             "viewZ"));
+    BIND_STRUCT_METHOD(st, setImageSign, MARGS("sx", "sy", "sz", "isMirror"));
     BIND_STRUCT_METHOD(st, lastUniformValidationOk, MARGS());
     BIND_STRUCT_METHOD(st, preflightRaw, MARGS("type"));
     BIND_STRUCT_METHOD(st, preflightRawProgram, MARGS("program"));

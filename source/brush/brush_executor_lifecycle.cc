@@ -45,6 +45,9 @@ namespace sculptcore::brush {
     uvReprojPending_.clear();
     grabRegions_.clear();
     grabWidenRadius_ = 0.0f;
+    planeFrameState_.reset();
+    imageSign_ = float3(1.0f, 1.0f, 1.0f);
+    imageIsMirror_ = false;
     if (brush) {
       brush->resetStrokePath();
     }

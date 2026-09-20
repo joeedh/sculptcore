@@ -27,6 +27,7 @@ namespace sculptcore::brush {
       def.attrs = decltype(def.attrs)();
       createCommandImpl<AccumOrig>(brushType, def);
     }
+    applyPlaneFrameOrigNormals(def);
     return def;
   }
 

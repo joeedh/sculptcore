@@ -30,6 +30,28 @@ public:
   }
 };
 
+/** Declare one symmetry image to the executor for the dab about to run
+ * (`setImageSign`: the primary is the identity, a mirror carries its signs),
+ * and put the executor back on the primary afterwards so a host that never
+ * calls setImageSign itself is not left on a mirror. Both executors expose
+ * the same setter. */
+template <class Executor> class DabImageScope {
+  Executor &exec_;
+
+public:
+  DabImageScope(Executor &exec, const float *signs) : exec_(exec)
+  {
+    if (signs)
+      exec_.setImageSign(signs[0], signs[1], signs[2], true);
+    else
+      exec_.setImageSign(1.0f, 1.0f, 1.0f, false);
+  }
+  ~DabImageScope()
+  {
+    exec_.setImageSign(1.0f, 1.0f, 1.0f, false);
+  }
+};
+
 inline int reportStrokeInputFailure(const props::ScalarRegistrationResult &result)
 {
   fprintf(stderr,

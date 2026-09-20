@@ -20,6 +20,7 @@
 #include "mesh/uv_reproject.h"
 #include "meshlog/meshlog.h"
 #include "neighbor_source.h"
+#include "plane_frame.h"
 #include "prepared_cavity.h"
 #include "prepared_enhance.h"
 #include "spatial/node.h"
@@ -205,6 +206,30 @@ public:
    * exec(). Must be non-zero in use, since the `.brush.dab.gen` attr defaults 0. */
   uint32_t dabGen = 0;
   uint32_t strokeGen = 0;
+  /** Plane-frame policy for `@planeFrame` kernels (plane_frame.h). Sticky like
+   * `nonAccum`: the host pushes it before every stroke, default included.
+   * `planeFrameState_` is the per-stroke memory it resolves against (reset by
+   * beginStep and by setPlaneFrame). */
+  PlaneFramePolicy planeFrame_;
+  PlaneFrameState planeFrameState_;
+  /** Symmetry image of the dab in flight: the component signs that map the
+   * primary image onto it, and whether it is a mirror at all. A mirror plane
+   * dab takes the reflected primary frame instead of running its own gather.
+   * Set per image by the host (setImageSign) or the batch c-api; the default
+   * is the primary. */
+  float3 imageSign_{1.0f, 1.0f, 1.0f};
+  bool imageIsMirror_ = false;
+  /** Scratch for resolvePlaneFrame: the wider gather candidates, and the
+   * re-gathered dab region when the centre moved off the cursor. */
+  Vector<spatial::SpatialNode *> planeQueryNodes_;
+  Vector<spatial::SpatialNode *> planeFrameNodes_;
+  /** What the most recent plane-frame substitution did (tests / HUD): the
+   * cursor it started from, the frame the kernel ran with, and whether one
+   * happened at all in the last exec(). */
+  bool lastPlaneResolved = false;
+  float3 lastPlaneCursor{};
+  float3 lastPlaneNormal{};
+  float3 lastPlaneCenter{};
   // Memo for filterRadiusFloor / grabAnchoredTool: building a command def per
   // dab just to read a couple of codegen flags is wasteful, and the answer only
   // depends on the tool.
@@ -316,6 +341,56 @@ public:
     strokeGen = uint32_t(gen);
   }
 
+  /** Push the plane-frame policy for the upcoming stroke (plane_frame.h).
+   * `normalMode` is a PlaneNormalMode (0 Surface, 1 Area, 2 View, 3..5
+   * X/Y/Z), `centerMode` a PlaneCenterMode (0 Cursor, 1 Area); the view axis
+   * is object-space, surface -> eye. Resets the stroke's frame memory, so
+   * call it before the first dab. Out-of-range modes fall back to Surface /
+   * Cursor. */
+  void setPlaneFrame(int normalMode,
+                     int centerMode,
+                     bool originalNormal,
+                     bool originalPlane,
+                     float normalRadiusFactor,
+                     float areaRadiusFactor,
+                     float stabilizeNormal,
+                     float stabilizePlane,
+                     float viewX,
+                     float viewY,
+                     float viewZ)
+  {
+    PlaneFramePolicy p;
+    p.normal = (normalMode >= 0 && normalMode <= int(PlaneNormalMode::Z))
+                   ? PlaneNormalMode(normalMode)
+                   : PlaneNormalMode::Surface;
+    p.center = centerMode == int(PlaneCenterMode::Area) ? PlaneCenterMode::Area
+                                                         : PlaneCenterMode::Cursor;
+    p.originalNormal = originalNormal;
+    p.originalPlane = originalPlane;
+    p.normalRadiusFactor = std::isfinite(normalRadiusFactor) ? normalRadiusFactor : 1.0f;
+    p.areaRadiusFactor = std::isfinite(areaRadiusFactor) ? areaRadiusFactor : 1.0f;
+    p.stabilizeNormal =
+        std::isfinite(stabilizeNormal) ? std::clamp(stabilizeNormal, 0.0f, 1.0f) : 0.0f;
+    p.stabilizePlane =
+        std::isfinite(stabilizePlane) ? std::clamp(stabilizePlane, 0.0f, 1.0f) : 0.0f;
+    float3 axis(viewX, viewY, viewZ);
+    const float len = axis.length();
+    p.viewAxis = (std::isfinite(len) && len > 0.0f) ? axis * (1.0f / len)
+                                                    : float3(0.0f, 0.0f, 1.0f);
+    planeFrame_ = p;
+    planeFrameState_.reset();
+  }
+
+  /** Declare the symmetry image of the next dab(s): the component signs that
+   * map the primary image onto it, and whether it is a mirror. The primary is
+   * (1, 1, 1, false). Only `@planeFrame` kernels read it. */
+  void setImageSign(float sx, float sy, float sz, bool isMirror)
+  {
+    imageSign_ = float3(
+        sx < 0.0f ? -1.0f : 1.0f, sy < 0.0f ? -1.0f : 1.0f, sz < 0.0f ? -1.0f : 1.0f);
+    imageIsMirror_ = isMirror;
+  }
+
   /** Per-call iterator factories used by CommandCtx::vertexIter/faceIter. The
    * vertex iterator is parameterized by the AccumMode policy and threaded the
    * displacement field (null/0 unless a from-base mode is active for this dab). */
@@ -349,6 +424,20 @@ public:
   void createCommandImpl(SculptBrushes brushType, brush_command &def);
 
   brush_command createCommand(SculptBrushes brushType);
+
+  /** A non-accumulating plane stroke gathering an AREA normal reads
+   * stroke-start normals, so its command opts into the `.brush.orig.no` stamp.
+   * Decided at command creation — before the stroke's first exec() — because
+   * the stamp elision never re-stamps a vert, so a mid-stroke flip would leave
+   * stale normals behind. Both factories (prepared and raw) call this. */
+  void applyPlaneFrameOrigNormals(brush_command &def) const
+  {
+    if (def.usesPlaneFrame && nonAccum && def.accumulable && !def.relaxesBase &&
+        planeFrame_.normal == PlaneNormalMode::Area)
+    {
+      def.needsOrigNormals = true;
+    }
+  }
 
   /** Lower bound on the node-filter radius for `brushType`. An `@unbounded`
    * kernel carries no distance falloff of its own â€” only `unboundedWindow`'s
@@ -446,10 +535,170 @@ public:
     return 0;
   }
 
+  /** Incoming host frame saved across a plane-frame substitution, restored
+   * after the command's kernel so a later sub-command of the same program
+   * (`[CLAY, SMOOTH]`) sees the cursor frame. */
+  struct PlaneFrameScope {
+    bool active = false;
+    float3 pos{};
+    float3 no{};
+  };
+
+  /** Area gather for a primary plane dab (Blender's
+   * `calc_area_normal_and_center`): every vert of the candidate leaves within
+   * `radius * normalRadiusFactor` (normal) / `radius * areaRadiusFactor`
+   * (centre) of the cursor, in the vintage the stroke reads — live, or the
+   * stroke-start position/normal (`co - disp`, `.brush.orig.no`) for verts
+   * an earlier dab stamped when non-accumulating. The engine has no hidden
+   * verts; the host strips them. */
+  void queryPlaneFrameArea(brush_command &cmd,
+                           std::span<spatial::SpatialNode *> nodes,
+                           const float3 &cursor,
+                           PlaneFrameAccum &accum)
+  {
+    const PlaneFramePolicy &p = planeFrame_;
+    mesh::Mesh *m = nodes[0]->data->m;
+    const float r = brush->radius;
+    const float rN = r * p.normalRadiusFactor;
+    const float rC = r * p.areaRadiusFactor;
+    const float rMax = std::fmax(rN, rC);
+    const bool fromBase = nonAccum && cmd.accumulable && !cmd.relaxesBase;
+
+    // updateQueries() after a dab skips the normal phase, so an accumulating
+    // AREA query would otherwise average stale normals over everything the
+    // stroke already moved. The refresh is incremental (dirty leaves only).
+    if (!fromBase && p.normal == PlaneNormalMode::Area) {
+      tree->updateNormals();
+    }
+
+    std::span<spatial::SpatialNode *> cand = nodes;
+    if (rMax > brush->falloffSupportRadius(r)) {
+      planeQueryNodes_.clear();
+      tree->filterNodes(cursor, rMax, planeQueryNodes_);
+      cand = std::span<spatial::SpatialNode *>(planeQueryNodes_.data(),
+                                               planeQueryNodes_.size());
+    }
+
+    mesh::AttrData<float3> *dispVec = nullptr;
+    mesh::AttrData<int> *dispGen = nullptr;
+    mesh::AttrData<float3> *origNo = nullptr;
+    if (fromBase) {
+      // Look the stroke's TEMP attrs up without creating them: on the first
+      // dab nothing is stamped yet and every read is live == original.
+      if (m->v.attrs.has(mesh::AttrType::FLOAT3, ".brush.disp.vec") &&
+          m->v.attrs.has(mesh::AttrType::INT, ".brush.disp.gen"))
+      {
+        dispVec = static_cast<mesh::AttrData<float3> *>(
+            m->v.attrs.ensure(mesh::AttrType::FLOAT3, ".brush.disp.vec", false).data);
+        dispGen = static_cast<mesh::AttrData<int> *>(
+            m->v.attrs.ensure(mesh::AttrType::INT, ".brush.disp.gen", false).data);
+        if (m->v.attrs.has(mesh::AttrType::FLOAT3, ".brush.orig.no")) {
+          origNo = static_cast<mesh::AttrData<float3> *>(
+              m->v.attrs.ensure(mesh::AttrType::FLOAT3, ".brush.orig.no", false).data);
+        }
+      }
+    }
+
+    accum.begin(cursor, p.viewAxis, rN, rC);
+    for (auto *node : cand) {
+      for (int v : node->data->unique_verts) {
+        float3 co = m->v.co[v];
+        float3 no = m->v.no[v];
+        if (dispGen && dispGen->safe_get(v) == int(strokeGen)) {
+          co -= dispVec->safe_get(v);
+          if (origNo) {
+            no = origNo->safe_get(v);
+          }
+        }
+        accum.add(co, no);
+      }
+    }
+  }
+
+  /** Substitute the dab's surface frame for a `@planeFrame` command under a
+   * non-default policy (plane_frame.h). Runs at the top of exec(), before the
+   * stroke-start stamp — the gather reads unstamped verts as live == original
+   * and stamped ones from the displacement base — and before the prepared
+   * hooks that read the frame. A mirror image reflects the stroke's last
+   * primary frame; a primary gathers, applies the original-normal/plane
+   * toggles and the stabiliser, and records itself. When the centre moved off
+   * the cursor the dab region is re-gathered around it (`nodes` is replaced by
+   * the scratch list). Returns false when the dab must be skipped — an AREA
+   * normal was requested and nothing usable was found. */
+  bool resolvePlaneFrame(brush_command &cmd,
+                         std::span<spatial::SpatialNode *> &nodes,
+                         PlaneFrameScope &scope)
+  {
+    lastPlaneResolved = false;
+    if (!cmd.usesPlaneFrame || !planeFrame_.active() || nodes.size() == 0 || !tree ||
+        !brush)
+    {
+      return true;
+    }
+    const PlaneFramePolicy &p = planeFrame_;
+    const float3 cursor = ctx.surfacePos;
+    scope.active = true;
+    scope.pos = ctx.surfacePos;
+    scope.no = ctx.surfaceNo;
+
+    PlaneFrameResolve resolve{p, planeFrameState_};
+    float3 normal, center;
+    if (!(imageIsMirror_ && resolve.mirror(imageSign_, normal, center))) {
+      PlaneFrameAccum accum;
+      const PlaneFrameAccum *accumPtr = nullptr;
+      if (resolve.needsAreaQuery()) {
+        queryPlaneFrameArea(cmd, nodes, cursor, accum);
+        accumPtr = &accum;
+      }
+      if (!resolve.primary(ctx.surfaceNo, cursor, accumPtr, normal, center)) {
+        return false;
+      }
+    }
+    ctx.surfaceNo = normal;
+    ctx.surfacePos = center;
+    lastPlaneResolved = true;
+    lastPlaneCursor = cursor;
+    lastPlaneNormal = normal;
+    lastPlaneCenter = center;
+
+    // Blender re-gathers the PLANE brush's nodes around the resolved centre
+    // (plane.cc, #123768): the falloff is centred there, so verts the cursor
+    // filter never reached can be inside it.
+    if (p.center == PlaneCenterMode::Area && (center - cursor).length() > 0.0f) {
+      const float support =
+          std::fmax(brush->falloffSupportRadius(brush->radius),
+                    cmd.unbounded ? brush->radius * brush->unboundedExtent : 0.0f);
+      planeFrameNodes_.clear();
+      tree->filterNodes(center, support, planeFrameNodes_);
+      nodes = std::span<spatial::SpatialNode *>(planeFrameNodes_.data(),
+                                                planeFrameNodes_.size());
+    }
+    return true;
+  }
+
   void exec(brush_command &cmd,
             std::span<spatial::SpatialNode *> nodes,
             std::span<const BrushAttrLayerOverride> attrOverrides = {})
   {
+    // Plane-frame substitution first: it can replace the node list, and
+    // everything below (attr binding, capture, stamps, hooks, kernel) must see
+    // the final region and frame.
+    PlaneFrameScope planeScope;
+    if (!resolvePlaneFrame(cmd, nodes, planeScope)) {
+      return;
+    }
+    struct PlaneFrameRestore {
+      CommandCtxBase &ctx;
+      const PlaneFrameScope &scope;
+      ~PlaneFrameRestore()
+      {
+        if (scope.active) {
+          ctx.surfacePos = scope.pos;
+          ctx.surfaceNo = scope.no;
+        }
+      }
+    } planeRestore{ctx, planeScope};
+
     // Resolve declared attribute layers once per dab (shared across all nodes;
     // the AttrData pointers are mesh-wide and stable for the dab's duration).
     if (attrOverrides.size() == 0 && defaultAttrOverrides.size() > 0) {

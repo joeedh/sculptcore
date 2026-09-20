@@ -64,6 +64,7 @@ static void createPlaneBrush(BrushCommandDef<CommandCtx<TYPES>> &def)
   def.preparedHostNoop = true;
   def.preparedScalarSafe = true;
   def.accumulable = true;
+  def.usesPlaneFrame = true;
   def.uniforms.append(sculptcore::brush::BrushUniformManifestEntry{"planeoff", true, true, 0.0, false, 0.0, 0.0, -1, sculptcore::props::Prop::FLOAT32, false});
   def.uniforms.append(sculptcore::brush::BrushUniformManifestEntry{"planeSide", true, false, 0.0, false, 0.0, 0.0, -1, sculptcore::props::Prop::FLOAT32, false});
   def.uniforms.append(sculptcore::brush::BrushUniformManifestEntry{"radius", true, true, 0.0, false, 0.0, 0.0, -1, sculptcore::props::Prop::FLOAT32, false});

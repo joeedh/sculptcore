@@ -99,6 +99,7 @@ struct BrushDefFlags {
   bool writesColor = false;
   bool faceMode = false;
   bool readsVclass = false;
+  bool usesPlaneFrame = false;
 
   static litestl::binding::types::Struct<BrushDefFlags> *defineBindings()
   {
@@ -116,6 +117,7 @@ struct BrushDefFlags {
     BIND_STRUCT_MEMBER(st, writesColor);
     BIND_STRUCT_MEMBER(st, faceMode);
     BIND_STRUCT_MEMBER(st, readsVclass);
+    BIND_STRUCT_MEMBER(st, usesPlaneFrame);
     return st;
   }
 };
@@ -538,6 +540,10 @@ template <typename CTX> struct BrushCommandDef {
   // capture stays ahead of the spatial halo normal refresh). No kernel consumes
   // it yet; default off.
   bool needsOrigNormals = false;
+  // Set by codegen from `@planeFrame`: the executor may resolve the dab's
+  // surfacePos/surfaceNo from its PlaneFramePolicy (brush/plane_frame.h), and
+  // sets `needsOrigNormals` when a non-accumulating stroke wants an AREA normal.
+  bool usesPlaneFrame = false;
   // Attribute layers this kernel reads/writes, emitted by codegen. The executor
   // resolves these to live mesh layers and binds them before the per-node loop.
   Vector<BrushAttrManifestEntry> attrs;

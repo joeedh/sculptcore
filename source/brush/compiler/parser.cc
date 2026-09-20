@@ -185,7 +185,7 @@ struct Parser {
 
     // Leading brush attributes: `@brush("name")` plus optional `@paint` /
     // `@grabmode` / `@relaxation` / `@unbounded` / `@incremental` / `@fulltopo` /
-    // `@gpu` markers and the `@tool NAME[, NAME...]` enum-item list.
+    // `@gpu` / `@planeFrame` markers and the `@tool NAME[, NAME...]` enum-item list.
     // `brush` is a keyword so it lexes as KwBrush; the rest lex as plain Ident.
     while (match(TokKind::At)) {
       if (match(TokKind::KwBrush)) {
@@ -215,6 +215,8 @@ struct Parser {
           brush->isFullTopo = true;
         } else if (attr.operator==(string("gpu"))) {
           brush->isGpu = true;
+        } else if (attr.operator==(string("planeFrame"))) {
+          brush->usesPlaneFrame = true;
         } else if (attr.operator==(string("tool"))) {
           // `@tool NAME[, NAME...]` — the SculptBrushes enum items this kernel
           // serves. Uppercase identifiers, validated against the id table by the
@@ -232,7 +234,8 @@ struct Parser {
         }
       } else {
         error("expected 'brush', 'paint', 'grabmode', 'relaxation', "
-              "'unbounded', 'incremental', 'gpu', 'tool', or 'fulltopo' after '@'",
+              "'unbounded', 'incremental', 'gpu', 'planeFrame', 'tool', or 'fulltopo' "
+              "after '@'",
               peek());
         break;
       }

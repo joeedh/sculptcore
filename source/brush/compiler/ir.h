@@ -401,6 +401,10 @@ struct Brush {
   // `@gpu`: the kernel has a GPU port — the built-in registry publishes its stem
   // per tool in kBuiltinBrushGpuKernel, which gpu_marshal dispatches on.
   bool isGpu = false;
+  // `@planeFrame`: the kernel projects onto the plane through `surfacePos`
+  // along `surfaceNo`, so the executor may replace that frame per dab from its
+  // plane-frame policy (brush/plane_frame.h). Codegen emits def.usesPlaneFrame.
+  bool usesPlaneFrame = false;
 };
 
 /** True when any stage body contains a `for_neighbor` loop — such brushes are

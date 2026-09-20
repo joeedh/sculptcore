@@ -84,6 +84,7 @@ inline BrushDefFlags brushDefFlagsFor(SculptBrushes brushType)
   flags.incremental = def.incremental;
   flags.writesMask = def.writesMask;
   flags.faceMode = def.faceMode;
+  flags.usesPlaneFrame = def.usesPlaneFrame;
   for (const auto &a : def.attrs) {
     if (a.kernelWrites && (a.use & int(mesh::AttrUse::COLOR))) {
       flags.writesColor = true;

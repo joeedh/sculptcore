@@ -213,6 +213,7 @@ static int meshDabInputs(brush::CommandExecutor *exec,
   litestl::util::Vector<spatial::SpatialNode *> nodes;
   auto image =
       [&](float3 center, float3 normal, float radius, const float *sign = nullptr) {
+        brush::DabImageScope<brush::CommandExecutor> imageScope(*exec, sign);
         std::optional<brush::DabFrameOverlay> frame;
         if (resolved && sign)
           frame.emplace(*brush, sign);

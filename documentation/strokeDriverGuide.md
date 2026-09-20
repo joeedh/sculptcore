@@ -160,9 +160,21 @@ The TS bridge does this in `resolveDabPolicy` / `resolveToolDabPolicy`
   along the sample's view ray and use the hit; for Anchored, use the driver's
   fixed anchor without re-raycasting (the dab center must never move off the
   anchor).
-- **plane-family normal** — Clay/Scrape/Fill may project along the view vector
-  instead of the surface normal (`resolvePlaneDabNormal`). Purely a host
-  decision; the kernel just consumes `normal`.
+- **plane-family frame** — a `@planeFrame` kernel (Clay/Scrape/Fill) takes
+  its plane through `center` along `normal` by default, so a host may still
+  pass a view-projected normal (`resolvePlaneDabNormal`). To get Blender's
+  plane-brush semantics instead, push a `PlaneFramePolicy` before the stroke
+  (`executor.setPlaneFrame(...)` / `GridStroke_setPlaneFrame`; see
+  `brush/plane_frame.h`): the executor then resolves the frame per dab at
+  apply time — an area-averaged normal and/or centre gathered around the
+  cursor, a fixed view/axis normal, the first frame held for the stroke, the
+  PLANE type's stabilisation — and re-gathers the region when the centre
+  moves. The policy is sticky, so push it every stroke, default included. A
+  driver that runs symmetry images itself must also declare each image
+  (`setImageSign(sx, sy, sz, isMirror)` before its dab, primary first): a
+  mirror dab takes the reflected primary frame rather than its own gather. The
+  batch c-api does this from its `signs` rows. The GPU (WGSL) path ignores the
+  policy and marshals the host frame as-is.
 - **radius** — the falloff radius, in world/object units, written to
   `wasmBrush.radius`. A screen-px brush must be converted at the dab
   (project the center, project center+1px, unproject, take the distance).
