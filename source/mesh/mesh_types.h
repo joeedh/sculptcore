@@ -81,7 +81,7 @@ struct VertexData : public ElemData {
   BuiltinAttr<int, ".vert.e", AttrFlag::TOPO | AttrFlag::DERIVED> e;
 
   /* is not instantiated until first use */
-  BuiltinAttr<bool, ".boundary.vertex.dirty"> boundaryDirty;
+  BuiltinAttr<bool, ".boundary.vert.dirty"> boundaryDirty;
 
   /* Move vsrc into vdst; vdst must be freed. */
   void move_elem(Mesh *m, int vsrc, int vdst);

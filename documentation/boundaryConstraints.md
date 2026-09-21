@@ -211,6 +211,15 @@ the brush executor (`brush_executor.h`):
   went dirty.
 - **Poly-group paint** marks painted faces dirty (`markPolygroupDirty`) so the
   derived border refreshes on the next recompute.
+- **Host group writes** — `Mesh_writeFaceIntAttr` (c-api) marks every face whose
+  `group` value changes (every face when the column is new). A host that loads
+  its face sets at mode enter and again after each undo rebuild would otherwise
+  leave a UV-less mesh with no poly-group classification at all: nothing else
+  dirties the overlay on that path, so the smooth brush stopped preserving face
+  set borders after an edit-mode round trip or an undo.
+- **Meshlog face rows** — `LogChunkElems::update_nodes` (`meshlog_chunk.h`)
+  marks each restored FACE-domain row dirty on undo/redo, since the row swap
+  bypasses the mutators and a group id may have moved with it.
 - **After deserialization** — `serial::readMesh` (`mesh_serialize.cc`) calls
   `markAllDirty` at the end of a load. The derived flags + `VERT_CLASS` are
   `TEMP` (not serialized) and `boundaryDirty` defaults false, so without this a

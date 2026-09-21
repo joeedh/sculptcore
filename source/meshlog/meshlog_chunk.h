@@ -17,6 +17,7 @@ Split out of that file to keep it from growing into one monster header.
 #include "mesh/attribute_bool.h"
 #include "mesh/attribute_builtin.h"
 #include "mesh/attribute_enums.h"
+#include "mesh/boundary.h"
 #include "mesh/mesh.h"
 #include "meshlog_types.h"
 #include "spatial/node.h"
@@ -392,7 +393,7 @@ private:
   void update_nodes(mesh::Mesh *m, spatial::SpatialTree *tree)
   {
     using namespace sculptcore::spatial;
-    if (domain == mesh::ElemType::CORNER && m->topo_frozen) {
+    if ((domain == mesh::ElemType::CORNER || domain == mesh::ElemType::FACE) && m->topo_frozen) {
       m->thawTopo();
     }
     for (int i : util::IndexRange(0, data.size())) {
@@ -402,6 +403,12 @@ private:
         ni = tree->treeMesh.v.node[idx];
       } else if (domain == mesh::ElemType::FACE) {
         ni = tree->treeMesh.f.node[idx];
+        // A face row carries the poly-group id and the row swap bypasses the
+        // boundary mutators: dirty the face (walks live corner links, hence
+        // the thaw above) so the lazy recompute re-derives its border edges.
+        if (idx >= 0 && idx < int(m->f.capacity()) && !m->f.freemap[idx]) {
+          mesh::boundary::markFaceDirty(m, idx);
+        }
       } else if (domain == mesh::ElemType::CORNER) {
         if (idx < 0 || idx >= int(m->c.capacity()) || m->c.freemap[idx]) {
           continue;

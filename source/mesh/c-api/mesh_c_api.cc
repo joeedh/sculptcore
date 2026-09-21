@@ -357,12 +357,21 @@ int Mesh_writeFaceIntAttr(Mesh *m, const char *name, const int *in)
   if (m->topo_frozen) {
     m->thawTopo();
   }
+  // The group column feeds the lazy boundary overlay, and a host write is the
+  // one group edit that bypasses its mutators: dirty every face whose group
+  // changes so bsmooth/dyntopo see the border after an enter or an undo rebuild.
+  const bool is_group = std::strcmp(name, boundary::FACE_GROUP) == 0;
+  const bool existed = m->f.attrs.has(AttrType::INT, name);
   AttrRef &ref = m->f.attrs.ensure(AttrType::INT, name, /*materialize=*/true);
   auto *data = static_cast<AttrData<int> *>(ref.data);
   int i = 0;
   for (int fi : m->f) {
     data->materialize(fi);
-    (*data)[fi] = in[i++];
+    const int value = in[i++];
+    if (is_group && (!existed || (*data)[fi] != value)) {
+      boundary::markFaceDirty(m, fi);
+    }
+    (*data)[fi] = value;
   }
   return 1;
 }
