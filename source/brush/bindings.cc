@@ -25,6 +25,7 @@ const BindingBase *Binder<sculptcore::brush::FalloffShape>::bind()
   e->addItem("CUBE", FalloffShape::Cube);
   e->addItem("LINEAR", FalloffShape::Linear);
   e->addItem("BOX", FalloffShape::Box);
+  e->addItem("ROUNDED_BOX", FalloffShape::RoundedBox);
   return e;
 }
 const BindingBase *Binder<sculptcore::brush::AttrElemDomain>::bind()
@@ -210,6 +211,9 @@ litestl::binding::types::Struct<Brush> *Brush::defineBindings()
     BIND_STRUCT_MEMBER(st, nu);
     BIND_STRUCT_MEMBER(st, unboundedExtent);
     BIND_STRUCT_MEMBER(st, pinch);
+    BIND_STRUCT_MEMBER(st, planeHeight);
+    BIND_STRUCT_MEMBER(st, planeDepth);
+    BIND_STRUCT_MEMBER(st, rotateAngle);
     BIND_STRUCT_MEMBER(st, projection);
     BIND_STRUCT_MEMBER(st, rake);
     BIND_STRUCT_MEMBER(st, reproject_uvs);
@@ -230,6 +234,7 @@ litestl::binding::types::Struct<Brush> *Brush::defineBindings()
     BIND_STRUCT_MEMBER(st, grabTo);
     BIND_STRUCT_MEMBER(st, falloff_dir);
     BIND_STRUCT_MEMBER(st, falloff_extent);
+    BIND_STRUCT_MEMBER(st, falloff_roundness);
     BIND_STRUCT_MEMBER(st, planeSide);
     BIND_STRUCT_MEMBER(st, strokeDir);
     BIND_STRUCT_MEMBER(st, strokeDirHostSet);

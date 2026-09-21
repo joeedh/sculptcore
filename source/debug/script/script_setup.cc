@@ -167,6 +167,10 @@ bool execSetupVerb(Scene &scene,
     scene.brush.spacing = getFloat(args, "spacing", scene.brush.spacing);
     scene.brush.invert = getBool(args, "invert", scene.brush.invert);
     scene.brush.pinch = getFloat(args, "pinch", scene.brush.pinch);
+    scene.brush.planeoff = getFloat(args, "planeoff", scene.brush.planeoff);
+    scene.brush.planeHeight = getFloat(args, "plane_height", scene.brush.planeHeight);
+    scene.brush.planeDepth = getFloat(args, "plane_depth", scene.brush.planeDepth);
+    scene.brush.rotateAngle = getFloat(args, "rotate_angle", scene.brush.rotateAngle);
     scene.nonAccum = getBool(args, "nonaccum", scene.nonAccum);
     scene.brush.writeProps();
     return true;
@@ -363,9 +367,11 @@ bool execSetupVerb(Scene &scene,
         scene.brush.falloff_shape = brush::FalloffShape::Linear;
       } else if (ss == "box") {
         scene.brush.falloff_shape = brush::FalloffShape::Box;
+      } else if (ss == "rounded_box") {
+        scene.brush.falloff_shape = brush::FalloffShape::RoundedBox;
       } else {
         err = std::string("set_falloff: unknown shape '") + sh +
-              "' (valid: spherical, cube, linear, box)";
+              "' (valid: spherical, cube, linear, box, rounded_box)";
         return false;
       }
     }
@@ -384,6 +390,9 @@ bool execSetupVerb(Scene &scene,
         return false;
       }
       scene.brush.falloff_extent = e;
+    }
+    if (const char *r = getArg(args, "roundness")) {
+      scene.brush.falloff_roundness = float(std::atof(r));
     }
     return true;
   }

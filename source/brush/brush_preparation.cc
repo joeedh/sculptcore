@@ -366,16 +366,21 @@ bool resolvedFalloffSupported(const Brush &brush)
     break;
   case FalloffShape::Linear:
   case FalloffShape::Box:
+  case FalloffShape::RoundedBox:
     for (int axis = 0; axis < 3; axis++) {
       if (!std::isfinite(brush.falloff_dir[axis]))
         return false;
-      if (brush.falloff_shape == FalloffShape::Box &&
+      if (brush.falloff_shape != FalloffShape::Linear &&
           (!std::isfinite(brush.falloff_extent[axis]) ||
            brush.falloff_extent[axis] <= 0 ||
            !std::isfinite(1.0f / brush.falloff_extent[axis])))
         return false;
     }
     if (!std::isfinite(brush.falloff_dir.lengthSqr()))
+      return false;
+    if (brush.falloff_shape == FalloffShape::RoundedBox &&
+        (!std::isfinite(brush.falloff_roundness) || brush.falloff_roundness < 0.0f ||
+         brush.falloff_roundness > 1.0f))
       return false;
     break;
   default:
@@ -395,7 +400,7 @@ bool resolvedFalloffSupported(const Brush &brush)
 
 bool resolvedFalloffNormalSupported(const Brush &brush, float x, float y, float z)
 {
-  if (brush.falloff_shape != FalloffShape::Box)
+  if (brush.falloff_shape != FalloffShape::Box && brush.falloff_shape != FalloffShape::RoundedBox)
     return true;
   const float lengthSquared = x * x + y * y + z * z;
   return std::isfinite(lengthSquared) && lengthSquared > 1e-20f;

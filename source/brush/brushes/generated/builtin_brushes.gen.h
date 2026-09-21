@@ -27,13 +27,16 @@
 #include "brush/kernels/generated/layerdraw.brush.gen.h"
 #include "brush/kernels/generated/enhance.brush.gen.h"
 #include "brush/kernels/generated/texgrad.brush.gen.h"
+#include "brush/kernels/generated/crease.brush.gen.h"
+#include "brush/kernels/generated/planebrush.brush.gen.h"
+#include "brush/kernels/generated/rotate.brush.gen.h"
 
 namespace sculptcore::brush {
 
-inline constexpr int builtinBrushCount = 23;
+inline constexpr int builtinBrushCount = 27;
 
 /** Enum item name per id — the reflected names, without a BindingManager. */
-inline constexpr const char *kBuiltinBrushNames[23] = {
+inline constexpr const char *kBuiltinBrushNames[27] = {
     "DRAW",
     "INFLATE",
     "CLAY",
@@ -57,10 +60,14 @@ inline constexpr const char *kBuiltinBrushNames[23] = {
     "LAYERDRAW",
     "ENHANCE",
     "TEXGRAD",
+    "CREASE",
+    "BLOB",
+    "PLANE",
+    "ROTATE",
 };
 
 /** The kernel's .sbrush stem, for diagnostics and roster tests. */
-inline constexpr const char *kBuiltinBrushKernels[23] = {
+inline constexpr const char *kBuiltinBrushKernels[27] = {
     "draw",
     "inflate",
     "plane",
@@ -84,13 +91,17 @@ inline constexpr const char *kBuiltinBrushKernels[23] = {
     "layerdraw",
     "enhance",
     "texgrad",
+    "crease",
+    "crease",
+    "planebrush",
+    "rotate",
 };
 
 /** The WGSL/SPIR-V kernel stem a tool runs on the GPU (`@gpu` on the
  * kernel), or null for a CPU-only tool. gpu_marshal.cc's gpuKernelForTool
  * consumes this: lighting a brush up on the GPU is `@gpu` in its .sbrush
  * and nothing else. */
-inline constexpr const char *kBuiltinBrushGpuKernel[23] = {
+inline constexpr const char *kBuiltinBrushGpuKernel[27] = {
     "draw", // DRAW
     "inflate", // INFLATE
     "plane", // CLAY
@@ -114,6 +125,10 @@ inline constexpr const char *kBuiltinBrushGpuKernel[23] = {
     nullptr, // LAYERDRAW
     nullptr, // ENHANCE
     "texgrad", // TEXGRAD
+    "crease", // CREASE
+    "crease", // BLOB
+    "planebrush", // PLANE
+    "rotate", // ROTATE
 };
 
 /** True when the kernel has a `for_neighbor` loop, i.e. it is instantiated
@@ -261,6 +276,16 @@ inline bool createBuiltinBrush(int id, bool csrNeighbors,
   case 22: // TEXGRAD
     createTexgradBrush<TYPES, AccMode>(def);
     return true;
+  case 23: // CREASE
+  case 24: // BLOB
+    createCreaseBrush<TYPES, AccMode>(def);
+    return true;
+  case 25: // PLANE
+    createPlanebrushBrush<TYPES, AccMode>(def);
+    return true;
+  case 26: // ROTATE
+    createRotateBrush<TYPES, AccMode>(def);
+    return true;
   default:
     return false;
   }
@@ -318,6 +343,13 @@ inline BrushGpuPackFn builtinBrushGpuPack(int id)
     return packEnhanceGpuUniforms;
   case 22: // TEXGRAD
     return packTexgradGpuUniforms;
+  case 23: // CREASE
+  case 24: // BLOB
+    return packCreaseGpuUniforms;
+  case 25: // PLANE
+    return packPlanebrushGpuUniforms;
+  case 26: // ROTATE
+    return packRotateGpuUniforms;
   default:
     return nullptr;
   }

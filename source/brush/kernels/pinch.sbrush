@@ -1,14 +1,27 @@
-// Pinch — pull each vert toward the brush center (surfacePos),
-// proportional to falloff*strength and gated by mask.
+// Pinch / Magnify — gather verts onto the stroke line (pinch), or, inverted,
+// push them away from it (magnify). The port of Blender's do_pinch_brush:
+// the vert's offset toward the brush centre is kept only in the in-plane
+// direction *across* the stroke and along the surface normal; the component
+// along the stroke direction is dropped, so a stroke pinches a ridge into
+// existence along its path instead of collapsing everything onto the dab
+// centre. Each vert moves by the fraction `strength x falloff` of that
+// offset; `pinch` scales it (the host hands it the brush strength, which
+// squares the slider the way Blender's `brush_strength` does), and an
+// inverted (magnify) dab runs at a quarter strength, as Blender's does.
+//
+// The first dab of a stroke has no direction yet (`strokeDir` is zero); it
+// gathers toward the point instead.
 
 @brush("pinch")
 @tool PINCH
 @gpu
 brush Pinch {
   ctx float3 surfacePos;
+  ctx float3 surfaceNo;
+  ctx float3 strokeDir;
   uniform float radius;
-  // Pinch amount (0..1), synced from the TS brush (brush.pinch); scales the
-  // toward-center pull so the brush setting actually drives the effect.
+  // Pinch amount, synced from the host brush (brush.pinch); scales the
+  // toward-line pull so the brush setting actually drives the effect.
   uniform float pinch @static;
 
   vertex void apply(inout Vertex v) {
@@ -16,15 +29,21 @@ brush Pinch {
     if (s == 0.0) {
       continue;
     }
-    float3 dir = surfacePos - v.co;
-    float d = length(dir);
-    // Move toward the center by a fixed s*radius/2 step, but never by more than
-    // fraction `s` of the distance that is actually left — otherwise verts near
-    // the center overshoot and cross to the far side. Guard div-by-zero for the
-    // lone vert that may sit exactly at surfacePos.
-    if (d > 0.0001) {
-      float t = min(s * radius * 0.5 / d, min(s, 1.0));
-      v.co += dir * t;
+    if (s < 0.0) {
+      s *= 0.25;
     }
+    // Never past the line: a fraction above 1 would cross it.
+    if (s > 1.0) {
+      s = 1.0;
+    }
+    float3 d = surfacePos - v.co;
+    float3 across = cross(surfaceNo, strokeDir);
+    float al = length(across);
+    float3 t = d;
+    if (al > 0.0001) {
+      across = across / al;
+      t = across * dot(d, across) + surfaceNo * dot(d, surfaceNo);
+    }
+    v.co += t * s;
   }
 }

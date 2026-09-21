@@ -181,12 +181,16 @@ the curve field per arm:
   shape* applied to the normalized distance `t`. The three analytic kinds are
   the old `Analytic` arm (branchless fast-path, kept per design); `Curve` is
   the LUT path.
-- `FalloffShape` (`Spherical|Cube|Linear`) — the *spatial metric* that maps a
-  3D delta to the scalar fed into the curve, via `Brush::falloffDist(delta)`:
-  `Spherical` = `|delta|/r`, `Cube` = `max(|dx|,|dy|,|dz|)/r` (the old `SQUARE`
-  flag), `Linear` = `|delta·dir|/r` (the `LINE_FALLOFF` case, with
-  `falloff_dir`). Mirrored in WGSL as `brush_falloff_dist` over the
-  `falloff_shape`/`falloff_dir` uniforms.
+- `FalloffShape` (`Spherical|Cube|Linear|Box|RoundedBox`) — the *spatial
+  metric* that maps a 3D delta to the scalar fed into the curve, via
+  `Brush::falloffDist(delta)`: `Spherical` = `|delta|/r`, `Cube` =
+  `max(|dx|,|dy|,|dz|)/r` (the old `SQUARE` flag), `Linear` = `|delta·dir|/r`
+  (the `LINE_FALLOFF` case, with `falloff_dir`), `Box` = the stroke-aligned
+  cuboid metric over `falloff_extent`, `RoundedBox` = the rounded rectangle in
+  the same frame's tangent plane (`falloff_extent[0..1]`, corner radius
+  `falloff_roundness`; the normal axis only bounds support). Mirrored in WGSL
+  as `brush_falloff_dist` over the `falloff_shape`/`falloff_dir` uniforms
+  (`falloff_roundness` rides `CtxUniforms`).
 
 `Curve1D` is the `props::detail::curve::CurveGen` authoring object (analytic
 kinds + b-spline control points; see `source/props/prop_curve.h`).
@@ -670,8 +674,8 @@ must come with coverage in
 
 - `set_brush_tool tool=draw|clay|smooth|pinch|sharp|inflate` — selects
   which compiled kernel `CommandExecutor::execBrush` dispatches.
-- `set_falloff kind=spherical|cube|linear|smoothstep|gaussian [curve=...]`
-  — drives the `Falloff` tagged union.
+- `set_falloff kind=smoothstep|linear|gaussian|curve shape=spherical|cube|linear|box|rounded_box [dir=x,y,z] [extent=x,y,z] [roundness=F]`
+  — sets the falloff curve and spatial metric.
 - `set_texture image=relpath` / `set_texture proc=name [params...]` —
   binds an image or procedural texture for `sampleBrushTex`.
 - `set_coord_space mode=global|viewplane|view_repeat|stroke_curved|projected`

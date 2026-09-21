@@ -79,5 +79,46 @@ int main()
   b.radius = 0;
   test_assert(!b.insideFalloff(float3(0.0f), nrm));
 
+  // RoundedBox: Blender's cube tip. Extents (1, 0.5, 1) with the stroke along
+  // +X, roundness 0.4: the core |q| <= 0.6 has no falloff at all, the margin
+  // ramps 0..1 linearly along an axis, and the corners are rounded, so the
+  // rectangle's corner is outside the shape.
+  b.radius = 1.0f;
+  b.falloff_shape = FalloffShape::RoundedBox;
+  b.falloff_dir = float3(1, 0, 0);
+  b.falloff_extent = float3{1.0f, 0.5f, 1.0f};
+  b.falloff_roundness = 0.4f;
+  test_assert(b.falloffDist(float3(0.5f, 0.0f, 0.0f), nrm) == 0.0f); // inside the core
+  test_assert(b.falloffDist(float3(0.0f, 0.25f, 0.0f), nrm) == 0.0f); // q1 = 0.5, in the core
+  test_assert(std::fabs(b.falloffDist(float3(0.8f, 0.0f, 0.0f), nrm) - 0.5f) < 1e-5f); // mid-margin
+  // The rectangle edge (1 - 0.6 vs 0.4 differ in the last float bit).
+  test_assert(b.falloffDist(float3(1.0f, 0.0f, 0.0f), nrm) > 1.0f - 1e-5f);
+  test_assert(b.falloffDist(float3(1.1f, 0.0f, 0.0f), nrm) == 1.0f); // saturates outside
+  // Corner: excess (0.4, 0.4), length / roundness = sqrt(2) > 1, clamped.
+  test_assert(b.falloffDist(float3(1.0f, 0.5f, 0.0f), nrm) == 1.0f);
+  // Diagonal inside the corner radius: excess (0.2, 0.2) -> 0.707.
+  test_assert(std::fabs(b.falloffDist(float3(0.8f, 0.4f, 0.0f), nrm) - std::sqrt(0.08f) / 0.4f) <
+              1e-5f);
+  // The normal axis is not part of the metric but bounds support.
+  test_assert(b.falloffDist(float3(0.0f, 0.0f, 0.9f), nrm) == 0.0f);
+  test_assert(b.insideFalloff(float3(0.0f, 0.0f, 0.9f), nrm));
+  test_assert(!b.insideFalloff(float3(0.0f, 0.0f, 1.1f), nrm));
+  test_assert(b.insideFalloff(float3(1.0f, 0.5f, 0.0f), nrm));
+  test_assert(!b.insideFalloff(float3(1.0f, 0.51f, 0.0f), nrm));
+  test_assert(b.falloffSupportRadius(1) >= float3(1.0f, 0.5f, 1.0f).length());
+  // Roundness 1 is the plain radial (elliptical) metric: sqrt(q0^2 + q1^2).
+  b.falloff_roundness = 1.0f;
+  test_assert(std::fabs(b.falloffDist(float3(0.6f, 0.0f, 0.0f), nrm) - 0.6f) < 1e-5f);
+  test_assert(std::fabs(b.falloffDist(float3(0.3f, 0.2f, 0.0f), nrm) - 0.5f) < 1e-5f);
+  // Roundness 0 is a hard-edged rectangle: full strength up to the edge.
+  b.falloff_roundness = 0.0f;
+  test_assert(b.falloffDist(float3(0.99f, 0.49f, 0.0f), nrm) == 0.0f);
+  test_assert(b.falloffDist(float3(1.01f, 0.0f, 0.0f), nrm) == 1.0f);
+  // The frame follows the stroke: with the stroke along +Y the long axis is Y.
+  b.falloff_roundness = 0.4f;
+  b.falloff_dir = float3(0, 1, 0);
+  test_assert(b.falloffDist(float3(0.0f, 0.8f, 0.0f), nrm) < 1.0f);
+  test_assert(b.falloffDist(float3(0.8f, 0.0f, 0.0f), nrm) == 1.0f);
+
   return test_end();
 }

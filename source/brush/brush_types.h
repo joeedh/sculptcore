@@ -28,11 +28,19 @@ enum class FalloffKind : unsigned char {
 //   Box       â€” oriented cuboid: max-norm in an orthonormal frame built from
 //               `falloff_dir` (primary axis = stroke direction), with
 //               independent per-axis half-extents in `falloff_extent`.
+//   RoundedBox - Blender's cube brush tip (`calc_brush_cube_distances`): a
+//               rounded rectangle in the Box frame's tangent plane, extents
+//               from `falloff_extent[0..1]`, corner radius `falloff_roundness`
+//               (1 = an ellipse, 0 = a hard-edged rectangle); the falloff runs
+//               only across the rounded margin, the interior is full strength.
+//               The metric ignores the normal axis; `falloff_extent[2]` bounds
+//               it as a hard cutoff instead.
 enum class FalloffShape : unsigned char {
   Spherical = 0,
   Cube = 1,
   Linear = 2,
   Box = 3,
+  RoundedBox = 4,
 };
 } // namespace sculptcore::brush
 

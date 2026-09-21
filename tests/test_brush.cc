@@ -28,7 +28,8 @@ static const ToolRow kTools[] = {
     {"POSE", 8},        {"TEXDRAW", 9},    {"SCRAPE", 10},      {"FILL", 11},
     {"WINGSCRAPE", 12}, {"COLOR", 13},     {"POLYGROUP", 14},   {"BSMOOTH", 15},
     {"GRAB", 16},       {"SNAKEHOOK", 17}, {"COLORSMOOTH", 18}, {"FEATURE_ALIGN", 19},
-    {"LAYERDRAW", 20},  {"ENHANCE", 21},   {"TEXGRAD", 22},
+    {"LAYERDRAW", 20},  {"ENHANCE", 21},   {"TEXGRAD", 22},     {"CREASE", 23},
+    {"BLOB", 24},       {"PLANE", 25},     {"ROTATE", 26},
 };
 
 static void runTests()

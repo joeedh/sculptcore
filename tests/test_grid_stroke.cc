@@ -127,6 +127,10 @@ static void gateGridsRoster()
       {SculptBrushes::LAYERDRAW, false, "sculpt-layer attr layer"},
       {SculptBrushes::ENHANCE, false, "per-vert displacement attr layer"},
       {SculptBrushes::TEXGRAD, true, nullptr},
+      {SculptBrushes::CREASE, true, nullptr},
+      {SculptBrushes::BLOB, true, nullptr},
+      {SculptBrushes::PLANE, true, nullptr},
+      {SculptBrushes::ROTATE, true, nullptr},
   };
   // Every built-in id is covered — a new tool must state its answer here.
   TASSERT(int(sizeof(golden) / sizeof(golden[0])) == SculptBrushesBuiltinCount);

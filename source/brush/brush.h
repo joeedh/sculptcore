@@ -86,6 +86,11 @@ struct Brush {
   // frame built from `falloff_dir` (extent[0] is along the stroke direction).
   // {1,1,1} makes Box an oriented cube. Unused by the other shapes.
   float3 falloff_extent{1, 1, 1};
+  // Corner radius of `FalloffShape::RoundedBox` as a fraction of the tangent
+  // extents: 1 rounds the rectangle into an ellipse (a plain radial falloff),
+  // 0 leaves a hard-edged rectangle. Blender's `tip_roundness`. Unused by the
+  // other shapes.
+  float falloff_roundness = 1.0f;
 
   // Stroke tangent (current dab origin âˆ’ previous dab center), set host-side by
   // the executor each dab. Drives wing-scrape wing orientation and can feed the
@@ -165,6 +170,16 @@ struct Brush {
   // pinch / sharp kernels as the `@static` uniform `pinch` to scale the
   // toward-axis pull. A plain member loadProps leaves untouched.
   float pinch = 0.0f;
+  // Plane brush reach above (planeHeight) and below (planeDepth) the offset
+  // plane, in radii; 0 disables that side. Read by the planebrush kernel as the
+  // `@static` uniforms of the same names; the host hands them per dab (Blender
+  // swaps them on an inverted stroke).
+  float planeHeight = 1.0f;
+  float planeDepth = 1.0f;
+  // Rotate brush: cumulative angle (radians) about the anchor normal, host-set
+  // per dab and reflected per symmetry image. Read by the rotate kernel as the
+  // `@static` uniform `rotateAngle`.
+  float rotateAngle = 0.0f;
   // Smooth projection factor (0..1), synced from the TS brush (brush.smoothProj).
   // Read by bsmooth as `@static` uniform `projection`: the fraction of each
   // smoothing step's normal component removed, so the surface slides tangentially
@@ -365,6 +380,9 @@ struct Brush {
         BRUSH_MEMBER(nu, true),
         BRUSH_MEMBER(unboundedExtent, true),
         BRUSH_MEMBER(pinch, true),
+        BRUSH_MEMBER(planeHeight, false),
+        BRUSH_MEMBER(planeDepth, false),
+        BRUSH_MEMBER(rotateAngle, false),
         BRUSH_MEMBER(projection, true),
         BRUSH_MEMBER(rake, true),
         BRUSH_MEMBER(grabFrom, false),

@@ -122,6 +122,16 @@ static bool referenceBrush(SculptBrushes tool, bool csrNeighbors, Def &def)
   case SculptBrushes::TEXGRAD:
     createTexgradBrush<Exec, AccMode>(def);
     return true;
+  case SculptBrushes::CREASE:
+  case SculptBrushes::BLOB:
+    createCreaseBrush<Exec, AccMode>(def);
+    return true;
+  case SculptBrushes::PLANE:
+    createPlanebrushBrush<Exec, AccMode>(def);
+    return true;
+  case SculptBrushes::ROTATE:
+    createRotateBrush<Exec, AccMode>(def);
+    return true;
   default:
     return false;
   }
@@ -308,7 +318,8 @@ static void runTests()
                           "featurealign") == 0);
 
   // The GPU kernel map, generated from `@gpu` — graded against the hand table
-  // gpu_marshal.cc carried before it (17 tools on 15 kernels), plus the six
+  // gpu_marshal.cc carried before it (17 tools on 15 kernels, since grown by
+  // CREASE/BLOB, PLANE and ROTATE), plus the six
   // deliberate CPU-only absences (e.g. ENHANCE's host ring-BFS pre-pass).
   {
     struct GpuRow {
@@ -333,6 +344,10 @@ static void runTests()
         {SculptBrushes::COLOR, "color"},
         {SculptBrushes::POLYGROUP, "polygroup"},
         {SculptBrushes::BSMOOTH, "bsmooth"},
+        {SculptBrushes::CREASE, "crease"},
+        {SculptBrushes::BLOB, "crease"},
+        {SculptBrushes::PLANE, "planebrush"},
+        {SculptBrushes::ROTATE, "rotate"},
     };
     int mapped = 0;
     for (int id = 0; id < SculptBrushesBuiltinCount; id++) {
@@ -340,7 +355,7 @@ static void runTests()
         mapped++;
       }
     }
-    test_assert(mapped == 17);
+    test_assert(mapped == 21);
     for (const GpuRow &row : gpuGolden) {
       test_assert(kBuiltinBrushGpuKernel[int(row.tool)] != nullptr);
       test_assert(std::strcmp(kBuiltinBrushGpuKernel[int(row.tool)], row.kernel) == 0);

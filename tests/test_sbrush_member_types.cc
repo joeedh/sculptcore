@@ -259,7 +259,7 @@ int main()
     test_assert(dynamic.brush && dynamic.brush->fields[0].dynamicExplicit);
     litestl::util::Vector<sculptcore::brush::BrushMemberDescriptor> members;
     sculptcore::brush::Brush::builtinPropDescriptors(members);
-    test_assert(members.size() == 35);
+    test_assert(members.size() == 38);
     bool sawBool = false, sawId = false, sawArray = false;
     for (const auto &member : members) {
       if (std::strcmp(member.name, "invert") == 0) {

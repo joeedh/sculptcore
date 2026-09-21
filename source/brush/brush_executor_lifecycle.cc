@@ -48,6 +48,8 @@ namespace sculptcore::brush {
     planeFrameState_.reset();
     imageSign_ = float3(1.0f, 1.0f, 1.0f);
     imageIsMirror_ = false;
+    hasPrimaryOrigin_ = false;
+    primaryStrokeDir_ = float3(0.0f, 0.0f, 0.0f);
     if (brush) {
       brush->resetStrokePath();
     }

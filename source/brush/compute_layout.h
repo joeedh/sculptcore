@@ -68,7 +68,11 @@ struct ComputeCtxUniforms {
   float vn_limit = 1.5707964f;    // offset 112 — kViewNormalLimitDefault
   float vn_falloff = 0.4363323f;  // offset 116 — kViewNormalFalloffDefault
   uint32_t vn_cull = 0;           // offset 120
-  uint32_t _pad2 = 0;             // offset 124; base rounds to 128
+  /* offset 124 — FalloffShape::RoundedBox corner radius (Brush::falloff_roundness).
+   * A brush property, but it rides the ctx block's tail pad so the brush
+   * block's appended DSL-uniform region (offset 72) stays where every
+   * generated pack fn puts it. The base still rounds to 128. */
+  float falloff_roundness = 1.0f;
   union {
     struct { // kelvinlet.wgsl CtxUniforms tail
       float grabFrom[3];
@@ -85,6 +89,10 @@ struct ComputeCtxUniforms {
       uint32_t _gpad0; // offset 128 (no grabFrom — the
                        // kernel drags by grabTo alone)
     } grab;
+    struct { // pinch.wgsl tail — the stroke tangent the pinch line follows
+      float strokeDir[3];
+      uint32_t _ppad0; // offset 128
+    } pinch;
   } global = {};
 };
 

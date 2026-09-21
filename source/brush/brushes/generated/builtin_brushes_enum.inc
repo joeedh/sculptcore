@@ -25,3 +25,7 @@ e->addItem("FEATURE_ALIGN", SculptBrushes::FEATURE_ALIGN);
 e->addItem("LAYERDRAW", SculptBrushes::LAYERDRAW);
 e->addItem("ENHANCE", SculptBrushes::ENHANCE);
 e->addItem("TEXGRAD", SculptBrushes::TEXGRAD);
+e->addItem("CREASE", SculptBrushes::CREASE);
+e->addItem("BLOB", SculptBrushes::BLOB);
+e->addItem("PLANE", SculptBrushes::PLANE);
+e->addItem("ROTATE", SculptBrushes::ROTATE);

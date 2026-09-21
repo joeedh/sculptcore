@@ -1,0 +1,41 @@
+// Crease / Blob — a normal-offset draw whose verts are also gathered toward
+// the brush axis (crease) or spread away from it (blob). The port of Blender's
+// do_crease_or_blob_brush: the same kernel serves both tools, the host flips
+// the sign of `pinch`.
+//
+// Per vertex, with `f` the spatial factor (falloff x mask x texture):
+//   pull   = (surfacePos - co) * f * pinch, projected into the plane
+//            perpendicular to surfaceNo, so verts gather toward the brush
+//            *axis* rather than the centre point (a point pinch flattens the
+//            region around it; Blender's comment)
+//   offset = surfaceNo * strength * f * radius * 0.5
+// Blender squares its pinch factor and divides its strength out of the pull
+// (`crease_pinch_factor^2 / alpha^2`), so the gather depends on the pinch
+// setting and the falloff only, never on the strength slider: the host hands
+// `pinch` the signed square, and the kernel divides the strength intrinsic's
+// slider term back out to recover `f`.
+
+@brush("crease")
+@tool CREASE, BLOB
+@gpu
+brush Crease {
+  ctx float3 surfacePos;
+  ctx float3 surfaceNo;
+  uniform float strength, radius;
+  // Signed toward-axis gather amount: positive pinches (crease), negative
+  // spreads (blob). Host-set per stroke, never device-driven (Blender's pinch
+  // factor takes no pressure).
+  uniform float pinch @static;
+
+  vertex void apply(inout Vertex v) {
+    float s = strength(v.co) * masks();
+    if (s == 0.0) {
+      continue;
+    }
+    // s = strength * f, signed by invert; |s / strength| is the bare factor.
+    float f = abs(s / strength);
+    float3 pull = (surfacePos - v.co) * (f * pinch);
+    pull -= surfaceNo * dot(pull, surfaceNo);
+    v.co += pull + surfaceNo * (s * radius * 0.5);
+  }
+}

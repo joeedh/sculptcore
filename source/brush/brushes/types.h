@@ -37,13 +37,23 @@ enum class _SculptBrushes {
   // Draw along the autodiff gradient of an imported texture field — the
   // cross-backend gate for grad() through Tex.eval (texture-scripts T2).
   TEXGRAD = 22,
+  // Crease / Blob: a normal-offset draw whose verts also gather toward (crease)
+  // or spread from (blob) the brush axis. One kernel, host-signed pinch.
+  CREASE = 23,
+  BLOB = 24,
+  // Plane: Blender's unified flatten / fill / scrape, with a per-side reach
+  // (planeHeight above the plane, planeDepth below it).
+  PLANE = 25,
+  // Rotate (Blender's Twist): grab-class spin about the anchor normal by a
+  // host-set cumulative angle.
+  ROTATE = 26,
 };
 MAKE_ENUM_CLASS(SculptBrushes, _SculptBrushes, int);
 
 /** First id available to extra (out-of-repo) kernels; see brushes/extra.h.
  * Generated extras code references this constant, never a literal count. */
-inline constexpr int SculptBrushesBuiltinCount = 23;
-static_assert(int(_SculptBrushes::TEXGRAD) == SculptBrushesBuiltinCount - 1,
+inline constexpr int SculptBrushesBuiltinCount = 27;
+static_assert(int(_SculptBrushes::ROTATE) == SculptBrushesBuiltinCount - 1,
               "SculptBrushesBuiltinCount must track the last built-in enum item");
 } // namespace sculptcore::brush
 

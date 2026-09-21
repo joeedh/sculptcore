@@ -219,6 +219,12 @@ public:
    * is the primary. */
   float3 imageSign_{1.0f, 1.0f, 1.0f};
   bool imageIsMirror_ = false;
+  /** The primary image's stroke tangent and the origin it was measured from,
+   * so a mirror image takes the reflected primary tangent instead of the
+   * difference between its own origin and the primary's (updateStrokeFrame). */
+  float3 primaryStrokeDir_{0.0f, 0.0f, 0.0f};
+  float3 primaryOrigin_{0.0f, 0.0f, 0.0f};
+  bool hasPrimaryOrigin_ = false;
   /** Scratch for resolvePlaneFrame: the wider gather candidates, the per-node
    * gather partials, and the re-gathered dab region when the centre moved off
    * the cursor. */
@@ -1566,9 +1572,9 @@ public:
   void setUniformDynamicSample(int idx, int deviceType, int i, int n, float value);
 
   // Update the per-dab stroke frame: the stroke tangent (this dab origin minus
-  // the previous dab center) and, for the oriented Box falloff, its primary
-  // axis. Must run *before* pushStrokeSample appends this origin, and before the
-  // kernel executes. Shared by both the single-brush and program dab paths so
+  // the previous primary dab center, reflected for a mirror image) and, for
+  // the oriented Box falloffs, their primary axis. Must run before the kernel
+  // executes. Shared by both the single-brush and program dab paths so
   // Box/wing-scrape orientation is identical regardless of entry point.
   void updateStrokeFrame(float3 origin)
   {
@@ -1576,21 +1582,33 @@ public:
     // tangent per image); the shared ring buffer would otherwise interleave
     // primary + mirror origins. Derive from the buffer only when host didn't.
     if (!brush->strokeDirHostSet) {
-      if (brush->strokePathCount == 0) {
-        // First dab of the stroke: no tangent exists yet, and the previous
-        // stroke's is not one (wing scrape would lean its wings along it).
-        brush->strokeDir = float3(0.0f, 0.0f, 0.0f);
+      if (imageIsMirror_) {
+        // A mirror image runs between two primaries; its tangent is the
+        // primary's reflected, never the step from the primary's origin.
+        brush->strokeDir = float3(primaryStrokeDir_[0] * imageSign_[0],
+                                  primaryStrokeDir_[1] * imageSign_[1],
+                                  primaryStrokeDir_[2] * imageSign_[2]);
       } else {
-        float3 d = origin - brush->strokePath[brush->strokePathCount - 1].pos;
-        float len = d.length();
-        if (len > 1e-7f) {
-          brush->strokeDir = d / len;
+        if (!hasPrimaryOrigin_) {
+          // First dab of the stroke: no tangent exists yet, and the previous
+          // stroke's is not one (wing scrape would lean its wings along it).
+          brush->strokeDir = float3(0.0f, 0.0f, 0.0f);
+        } else {
+          float3 d = origin - primaryOrigin_;
+          float len = d.length();
+          if (len > 1e-7f) {
+            brush->strokeDir = d / len;
+          }
         }
+        primaryStrokeDir_ = brush->strokeDir;
+        primaryOrigin_ = origin;
+        hasPrimaryOrigin_ = true;
       }
     }
     // The bridge only flips the shape to Box; the direction is owned here so it
     // stays consistent with wing-scrape's strokeDir.
-    if (brush->falloff_shape == FalloffShape::Box) {
+    if (brush->falloff_shape == FalloffShape::Box ||
+        brush->falloff_shape == FalloffShape::RoundedBox) {
       brush->falloff_dir = brush->strokeDir;
     }
   }

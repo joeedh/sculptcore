@@ -1,0 +1,54 @@
+// Plane brush — Blender's unified Flatten / Fill / Scrape (`do_plane_brush`,
+// the PLANE type that replaced the three 4.x tools). Projects verts onto the
+// plane through `surfacePos + surfaceNo * planeoff * radius`, reaching
+// `planeHeight` radii above it and `planeDepth` radii below it:
+//
+//   height = depth = 1 : flatten (both sides pulled onto the plane)
+//   height = 0         : fill (only what lies below the plane comes up)
+//   depth = 0          : scrape (only what stands above the plane goes down)
+//
+// Each side's reach also scales the falloff: the vertex's normal-axis
+// distance is measured in units of that side's reach, so a vertex a full
+// reach away from the plane sits at the falloff edge, and the factor is
+// then multiplied by the reach so a shallow side moves gently. Blender's
+// inversion modes (negate the displacement, or swap height and depth) are
+// the host's to apply: it hands the swapped values, or the sign, per dab.
+//
+// Distinct from `plane` (CLAY / SCRAPE / FILL), whose single-side gate and
+// unscaled radial falloff other hosts still drive.
+
+@brush("planebrush")
+@tool PLANE
+@gpu
+@planeFrame
+brush PlaneBrush {
+  ctx float3 surfacePos;
+  ctx float3 surfaceNo;
+  uniform float planeoff, radius;
+  // Reach above / below the plane, in radii. 0 disables that side. Host-set
+  // per dab (Blender swaps them on an inverted stroke), never device-driven.
+  uniform float planeHeight = 1.0 @static @range(0.0, 1.0);
+  uniform float planeDepth = 1.0 @static @range(0.0, 1.0);
+
+  vertex void apply(inout Vertex v) {
+    // Signed height of the vertex above the offset plane.
+    float3 P = surfacePos + surfaceNo * (planeoff * radius);
+    float h = dot(v.co - P, surfaceNo);
+    float reach = planeDepth;
+    if (h >= 0.0) {
+      reach = planeHeight;
+    }
+    if (reach == 0.0) {
+      continue;
+    }
+    // Falloff at the vertex's in-plane offset from the cursor plus its
+    // plane-relative height stretched by 1 / reach: Blender's
+    // `length(x, y, z / reach)` in brush-local units.
+    float3 probe = v.co - surfaceNo * dot(v.co - surfacePos, surfaceNo) + surfaceNo * (h / reach);
+    float s = strength(probe) * masks() * reach;
+    if (s == 0.0) {
+      continue;
+    }
+    v.co -= surfaceNo * (h * s);
+  }
+}

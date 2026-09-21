@@ -492,6 +492,9 @@ struct GridBrushExecutor {
   PlaneFrameState planeFrameState_;
   float3 imageSign_{1.0f, 1.0f, 1.0f};
   bool imageIsMirror_ = false;
+  float3 primaryStrokeDir_{0.0f, 0.0f, 0.0f};
+  float3 primaryOrigin_{0.0f, 0.0f, 0.0f};
+  bool hasPrimaryOrigin_ = false;
   bool lastPlaneResolved = false;
   float3 lastPlaneCursor{};
   float3 lastPlaneNormal{};
@@ -755,6 +758,8 @@ struct GridBrushExecutor {
     planeFrameState_.reset();
     imageSign_ = float3(1.0f, 1.0f, 1.0f);
     imageIsMirror_ = false;
+    hasPrimaryOrigin_ = false;
+    primaryStrokeDir_ = float3(0.0f, 0.0f, 0.0f);
     if (brush) {
       brush->resetStrokePath();
     }
@@ -1704,19 +1709,31 @@ private:
   void updateStrokeFrame(float3 origin)
   {
     if (!brush->strokeDirHostSet) {
-      if (brush->strokePathCount == 0) {
-        // First dab of the stroke: no tangent exists yet, and the previous
-        // stroke's is not one (wing scrape would lean its wings along it).
-        brush->strokeDir = float3(0.0f, 0.0f, 0.0f);
+      if (imageIsMirror_) {
+        // A mirror image runs between two primaries; its tangent is the
+        // primary's reflected, never the step from the primary's origin.
+        brush->strokeDir = float3(primaryStrokeDir_[0] * imageSign_[0],
+                                  primaryStrokeDir_[1] * imageSign_[1],
+                                  primaryStrokeDir_[2] * imageSign_[2]);
       } else {
-        float3 d = origin - brush->strokePath[brush->strokePathCount - 1].pos;
-        float len = d.length();
-        if (len > 1e-7f) {
-          brush->strokeDir = d / len;
+        if (!hasPrimaryOrigin_) {
+          // First dab of the stroke: no tangent exists yet, and the previous
+          // stroke's is not one (wing scrape would lean its wings along it).
+          brush->strokeDir = float3(0.0f, 0.0f, 0.0f);
+        } else {
+          float3 d = origin - primaryOrigin_;
+          float len = d.length();
+          if (len > 1e-7f) {
+            brush->strokeDir = d / len;
+          }
         }
+        primaryStrokeDir_ = brush->strokeDir;
+        primaryOrigin_ = origin;
+        hasPrimaryOrigin_ = true;
       }
     }
-    if (brush->falloff_shape == FalloffShape::Box) {
+    if (brush->falloff_shape == FalloffShape::Box ||
+        brush->falloff_shape == FalloffShape::RoundedBox) {
       brush->falloff_dir = brush->strokeDir;
     }
   }

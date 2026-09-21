@@ -74,6 +74,10 @@ static const Row kTable[] = {
     {SculptBrushes::LAYERDRAW, "LAYERDRAW", Links::Never},
     {SculptBrushes::ENHANCE, "ENHANCE", Links::Always},
     {SculptBrushes::TEXGRAD, "TEXGRAD", Links::Never},
+    {SculptBrushes::CREASE, "CREASE", Links::Never},
+    {SculptBrushes::BLOB, "BLOB", Links::Never},
+    {SculptBrushes::PLANE, "PLANE", Links::Never},
+    {SculptBrushes::ROTATE, "ROTATE", Links::Never},
 };
 
 static bool expected(Links links, bool csr)

@@ -499,6 +499,24 @@ bool GpuStrokeSession::dab(Scene &scene, float3 origin, float3 normal, std::stri
   if (nodes.size() == 0) {
     return true;
   }
+  // The stroke tangent the executor derives per dab (updateStrokeFrame): zero
+  // on the first dab, else the step from the previous origin. This session
+  // has no mirror images, so the ring buffer's last sample is that origin.
+  if (!scene.brush.strokeDirHostSet) {
+    scene.brush.strokeDir = float3(0.0f, 0.0f, 0.0f);
+    if (scene.brush.strokePathCount > 0) {
+      float3 d = origin - scene.brush.strokePath[scene.brush.strokePathCount - 1].pos;
+      float len = d.length();
+      if (len > 1e-7f) {
+        scene.brush.strokeDir = d / len;
+      }
+    }
+  }
+  if (scene.brush.falloff_shape == brush::FalloffShape::Box ||
+      scene.brush.falloff_shape == brush::FalloffShape::RoundedBox)
+  {
+    scene.brush.falloff_dir = scene.brush.strokeDir;
+  }
   scene.brush.pushStrokeSample(origin, normal);
 
   Vector<uint32_t> uverts;

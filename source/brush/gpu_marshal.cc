@@ -139,6 +139,7 @@ void packCtxUniforms(const Brush &brush,
     out.vn_falloff = vp.falloff;
     out.vn_cull = vp.cull_backfaces ? 1u : 0u;
   }
+  out.falloff_roundness = brush.falloff_roundness;
 
   // Global-brush ctx tail (offset 96): kelvinlet grab vectors or pose cage.
   // Deliberate per-tool residue (the hook-table sweep's one keep): the ctx
@@ -152,6 +153,10 @@ void packCtxUniforms(const Brush &brush,
   } else if (tool == SculptBrushes::GRAB) {
     for (int i = 0; i < 3; i++) {
       out.global.grab.grabTo[i] = brush.grabTo[i];
+    }
+  } else if (tool == SculptBrushes::PINCH) {
+    for (int i = 0; i < 3; i++) {
+      out.global.pinch.strokeDir[i] = brush.strokeDir[i];
     }
   } else if (tool == SculptBrushes::POSE) {
     for (int a = 0; a < 4; a++) {

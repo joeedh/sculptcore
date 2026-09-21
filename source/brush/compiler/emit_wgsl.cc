@@ -1400,7 +1400,10 @@ struct Emit {
     write("  vn_limit: f32,\n");
     write("  vn_falloff: f32,\n");
     write("  vn_cull: u32,\n");
-    write("  _vn_pad: u32,\n");
+    // FalloffShape::RoundedBox corner radius (Brush::falloff_roundness): a
+    // brush property riding the ctx block's tail pad (ComputeCtxUniforms
+    // offset 124) so the BrushUniforms appended region does not move.
+    write("  falloff_roundness: f32,\n");
     for (const auto &f : brush->fields) {
       if (f.kind != FieldKind::Ctx)
         continue;
@@ -1589,8 +1592,53 @@ struct Emit {
     write("    let sb_d1 = abs(dot(delta, sb_lat)) / brush_u.falloff_extent.y;\n");
     write("    let sb_d2 = abs(dot(delta, sb_n)) / brush_u.falloff_extent.z;\n");
     write("    return max(sb_dn, max(sb_d1, sb_d2)) * sb_inv_r;\n");
+    write("  } else if (brush_u.falloff_shape == 4u) {\n");
+    // Rounded rectangle in the Box frame's tangent plane: mirrors
+    // Brush::falloffDist's RoundedBox case (Blender's cube tip), the axis
+    // distances past the `1 - roundness` core over the corner radius. The
+    // normal axis is not part of the metric; brush_strength bounds it.
+    write("    let sb_n = normalize(ctx_u.surfaceNo);\n");
+    write("    var sb_tang = brush_u.falloff_dir - sb_n * dot(brush_u.falloff_dir, "
+          "sb_n);\n");
+    write("    var sb_tl = length(sb_tang);\n");
+    write("    if (sb_tl < 1e-6) {\n");
+    write("      let sb_ref = select(vec3<f32>(1.0, 0.0, 0.0), vec3<f32>(0.0, 0.0, 1.0), "
+          "abs(sb_n.z) < 0.999);\n");
+    write("      sb_tang = cross(sb_ref, sb_n);\n");
+    write("      sb_tl = length(sb_tang);\n");
+    write("    }\n");
+    write("    sb_tang = sb_tang / sb_tl;\n");
+    write("    let sb_lat = cross(sb_n, sb_tang);\n");
+    write("    let sb_q0 = abs(dot(delta, sb_tang)) * sb_inv_r / brush_u.falloff_extent.x;\n");
+    write("    let sb_q1 = abs(dot(delta, sb_lat)) * sb_inv_r / brush_u.falloff_extent.y;\n");
+    write("    if (sb_q0 > 1.0 || sb_q1 > 1.0) { return 1.0; }\n");
+    write("    let sb_core = 1.0 - ctx_u.falloff_roundness;\n");
+    write("    let sb_e0 = select(0.0, sb_q0 - sb_core, sb_q0 > sb_core);\n");
+    write("    let sb_e1 = select(0.0, sb_q1 - sb_core, sb_q1 > sb_core);\n");
+    write("    if (sb_e0 == 0.0 && sb_e1 == 0.0) { return 0.0; }\n");
+    write("    if (ctx_u.falloff_roundness <= 0.0) { return 1.0; }\n");
+    write("    return min(sqrt(sb_e0 * sb_e0 + sb_e1 * sb_e1) / ctx_u.falloff_roundness, 1.0);\n");
     write("  }\n");
     write("  return length(delta) * sb_inv_r;\n");
+    write("}\n\n");
+    // Support-test twin of Brush::insideFalloff for the RoundedBox shape,
+    // whose tangent metric saturates at 1 outside the rectangle: the
+    // rectangle's own edges and the normal-axis cutoff bound it instead.
+    write("fn brush_inside_rounded_box(delta: vec3<f32>) -> bool {\n");
+    write("  let sb_n = normalize(ctx_u.surfaceNo);\n");
+    write("  var sb_tang = brush_u.falloff_dir - sb_n * dot(brush_u.falloff_dir, sb_n);\n");
+    write("  var sb_tl = length(sb_tang);\n");
+    write("  if (sb_tl < 1e-6) {\n");
+    write("    let sb_ref = select(vec3<f32>(1.0, 0.0, 0.0), vec3<f32>(0.0, 0.0, 1.0), "
+          "abs(sb_n.z) < 0.999);\n");
+    write("    sb_tang = cross(sb_ref, sb_n);\n");
+    write("    sb_tl = length(sb_tang);\n");
+    write("  }\n");
+    write("  sb_tang = sb_tang / sb_tl;\n");
+    write("  let sb_lat = cross(sb_n, sb_tang);\n");
+    write("  return abs(dot(delta, sb_tang)) <= brush_u.radius * brush_u.falloff_extent.x && "
+          "abs(dot(delta, sb_lat)) <= brush_u.radius * brush_u.falloff_extent.y && "
+          "abs(dot(delta, sb_n)) <= brush_u.radius * brush_u.falloff_extent.z;\n");
     write("}\n\n");
     // Dynamic view-normal automask factor for vertex `vid` — kept in lockstep
     // with automask.h's viewNormalFactor (guards included): 1.0 head-on,
@@ -1761,7 +1809,8 @@ struct Emit {
     write("  let sb_delta = p - ctx_u.surfacePos;\n");
     write("  let sb_dist = brush_falloff_dist(sb_delta);\n");
     write("  if (brush_u.radius <= 0.0 || sb_dist > 1.0 || "
-          "(brush_u.falloff_shape == 2u && length(sb_delta) > brush_u.radius)) { return 0.0; }\n");
+          "(brush_u.falloff_shape == 2u && length(sb_delta) > brush_u.radius) || "
+          "(brush_u.falloff_shape == 4u && !brush_inside_rounded_box(sb_delta))) { return 0.0; }\n");
     write("  let sb_t = 1.0 - sb_dist;\n");
     write("  let sb_s = brush_u.strength * brush_falloff(sb_t) * brush_sample_tex(p, "
           "ctx_u.surfaceNo);\n");

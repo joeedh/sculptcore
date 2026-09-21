@@ -93,8 +93,12 @@ return brush.strength * brush.falloffEval(t);
 ```
 
 `falloffDist` applies the spatial metric (`FalloffShape`:
-spherical / cube / linear / box — box is the stroke-aligned oriented cuboid,
-built from `surfaceNo` + `falloff_dir`) and `falloffEval` the curve shape
+spherical / cube / linear / box / rounded box — box is the stroke-aligned
+oriented cuboid, built from `surfaceNo` + `falloff_dir`; rounded box is the
+same frame's tangent-plane rectangle with a corner radius `falloff_roundness`,
+Blender's brush tip: the distance is 0 over the inner rectangle and ramps to 1
+across a margin of that width, an ellipse at roundness 1 and a hard-edged
+rectangle at 0) and `falloffEval` the curve shape
 (`FalloffKind`:
 smoothstep / linear / gaussian / curve-LUT). Both enums are bound directly as
 `Brush` members (`falloff_shape`/`falloff_kind`, via `Binder<FalloffKind>` /

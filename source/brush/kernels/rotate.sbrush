@@ -1,0 +1,39 @@
+// Rotate (Blender's "Twist") — spin the region under the anchor about the
+// anchor's surface normal by the angle the cursor has swept around the
+// stroke's start point. Grab-class: like Grab it is anchored at the stroke
+// start and re-derived from each vert's stroke-start position every dab, so
+// the host hands it the *cumulative* angle (Blender's `vertex_rotation`, the
+// dial angle x strength) rather than a per-dab step, and dragging back
+// unwinds the twist. Each vert turns by that angle scaled by its falloff, so
+// the twist fades out toward the brush edge (Blender's `do_rotate_brush`).
+//
+// `rotateAngle` is signed by the host per symmetry image: a mirror image
+// reverses the sense of rotation once per reflected axis.
+
+@brush("rotate")
+@tool ROTATE
+@gpu
+@grabmode
+brush Rotate {
+  ctx float3 surfacePos;
+  ctx float3 surfaceNo;
+  uniform float radius;
+  // Cumulative rotation about surfaceNo at the brush centre, radians.
+  // Host-set per dab, never device-driven (pressure rides the strength).
+  uniform float rotateAngle @static;
+
+  vertex void apply(inout Vertex v) {
+    float fall = strength(v.co) * masks();
+    if (fall == 0.0) {
+      continue;
+    }
+    float a = rotateAngle * fall;
+    // Rodrigues' rotation of the offset from the anchor about the normal.
+    float3 k = normalize(surfaceNo);
+    float3 d = v.co - surfacePos;
+    float c = cos(a);
+    float sn = sin(a);
+    float3 r = d * c + cross(k, d) * sn + k * (dot(k, d) * (1.0 - c));
+    v.co += r - d;
+  }
+}

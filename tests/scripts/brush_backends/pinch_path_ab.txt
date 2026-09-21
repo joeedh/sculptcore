@@ -1,0 +1,18 @@
+# A/B script: pinch along a stroke path, cpp vs wgsl backend gate. The
+# single-dab pinch_ab.txt has no stroke direction (the first dab gathers to a
+# point); this sweep gives the kernel a tangent, so the across-stroke line
+# projection runs on both backends. See draw_ab.txt.
+make_cube subdivs=12 size=0.5
+build_spatial leaf_limit=256 depth_limit=8
+set_brush_tool tool=pinch
+set_brush radius=0.25 strength=0.5 pinch=1.0
+
+set_backend backend=cpp
+stroke_path p1=-0.2,0,0.25 p2=0.2,0,0.25 normal=0,0,1 steps=4
+dump_state out=pinch_path_cpp.json
+
+undo
+
+set_backend backend=wgsl
+stroke_path p1=-0.2,0,0.25 p2=0.2,0,0.25 normal=0,0,1 steps=4
+dump_state out=pinch_path_wgsl.json
