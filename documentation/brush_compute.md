@@ -23,7 +23,8 @@ source/brush/
     ir/                    # intrinsics.{h,cc} — the backend-agnostic op table
   compiler/                # the sbrushc host tool
     lexer.{h,cc}  parser.{h,cc}  ir.{h,cc}
-    emit_cpp.cc  emit_wgsl.cc  emit_cuda.cc  emit_opencl.cc
+    emit_cpp.cc  emit_cpp_{expr,stmt,texture,stages,kernel}.cc  emit_cpp_internal.h
+    emit_wgsl.cc  emit_cuda.cc  emit_opencl.cc
     sbrushc_main.cc  CMakeLists.txt
 ```
 
@@ -109,7 +110,7 @@ match it bit-for-bit modulo floating point.
 
 | Backend | Emitter | Output | Validator | Notes |
 |---|---|---|---|---|
-| C++ | `emit_cpp.cc` | `<stem>.brush.gen.h` (templated functor) | C++ compiler | The only backend whose output links into `libbrush`. Checked into `kernels/generated/`. |
+| C++ | `emit_cpp*.cc` | `<stem>.brush.gen.h` (templated functor) | C++ compiler | The only backend whose output links into `libbrush`. Checked into `kernels/generated/`. |
 | WGSL | `emit_wgsl.cc` | `<stem>.wgsl` | `tint` | One `@compute @workgroup_size(64)` kernel, one workgroup per spatial node. |
 | SPIR-V | `emit_wgsl.cc` | `<stem>.spv` | `tint --format=spirv` → `spirv-val` | Reuses the WGSL emit; a direct `emit_spirv.cc` could replace the tint step later without build changes. |
 | CUDA | `emit_cuda.cc` | `<stem>.cu` | `clang -x cuda --cuda-device-only -S` | |

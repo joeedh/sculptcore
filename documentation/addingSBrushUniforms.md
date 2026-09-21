@@ -64,7 +64,7 @@ and (c) whether the name is one of the hardcoded `CommandCtxBase` builtins.
 
 ### How the C++ emitter resolves a field name
 
-In `source/brush/compiler/emit_cpp.cc` (the `ExprKind::Ident` case), a declared
+In `source/brush/compiler/emit_cpp_expr.cc` (the `ExprKind::Ident` case), a declared
 field lowers to:
 
 | Field | vertex / reduce stage | host stage |
@@ -323,5 +323,7 @@ CPU-only? Stop after step 2 + `codegen`.
 - [`brush_compute.md`](brush_compute.md) — compiler pipeline, backends/emitters,
   verification harness.
 - [`brush.md`](brush.md) — the brush runtime (how a stroke reaches a kernel).
-- `source/brush/compiler/emit_cpp.cc` / `emit_wgsl.cc` — the actual lowerings.
+- `source/brush/compiler/emit_cpp*.cc` / `emit_wgsl.cc` — the actual lowerings
+  (the C++ emitter is split per concern: `_expr`, `_stmt`, `_texture`, `_stages`,
+  `_kernel`, over `emit_cpp_internal.h`).
 - `source/brush/compute_layout.h` — host mirrors of the GPU uniform blocks.

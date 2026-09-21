@@ -455,7 +455,8 @@ the perf/cascade work: [`documentation/plans/dyntopo-m7-cascade.md`](documentati
 `source/subdiv/` is the Catmull-Clark refiner (`subdiv.cc`), the multires data
 carrier (`grids.cc` — per-cage-corner Ptex grids of frame-relative displacement
 plus custom float channels, lz4 chunking, level eviction) and `Multires`
-(`multires.cc`), which materializes a level's `mesh::Mesh` + `SpatialTree` from
+(`multires*.cc` — the core, `_materialize`, `_propagate`, `_levels`, `_layers` and
+`_grid_attrs` files), which materializes a level's `mesh::Mesh` + `SpatialTree` from
 the stencil chain and the stored displacement. The composition rule per level is
 `base = stencil(pos of level below)`, `pos = base + frame·d`; `writeback()`
 re-expresses edits as store deltas, skipping bit-identical verts so an edit-free

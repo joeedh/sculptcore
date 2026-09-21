@@ -77,7 +77,8 @@ links, O(1) `neighbor()`, `seamMates()` replica enumeration), whole-grid
 chunking with offset-table-headed lz4 serialization, and compressed level
 eviction (X5: `evictLevel` lz4s a level's chunks per channel; `elem()`
 self-heals; `Multires::storeBudgetBytes` drives the finest-first policy).
-`multires.cc/.h` — `Multires`: materializes the active level's `mesh::Mesh` +
+`multires.cc/.h` (+ `multires_materialize.cc`, `_propagate.cc`, `_levels.cc`,
+`_layers.cc`, `_grid_attrs.cc`, one concern each) — `Multires`: materializes the active level's `mesh::Mesh` +
 `SpatialTree` from the stencil chain + stored displacement (`parametricFrames()`
 on the smoothed base — the lattice-derived frame that replaced the F3 provider
 here, for both frame stability and cost; see `CLAUDE.md` § *Subdivision and
@@ -196,7 +197,8 @@ path to write the cage; plus the per-dab cage write-back plumbing),
 that need mesh 1-rings, e.g. COLORSMOOTH: a tree-less `CommandExecutor` pass
 over the dab's grids' owning cage verts, limit-position falloff snapshot,
 per-dab re-derive of the incident grids). C API: `c-api/grid_stroke_c_api.cc`,
-`c-api/cage_smooth_c_api.cc`. Tests: `tests/test_grid_stroke.cc`; the
+`c-api/cage_smooth_c_api.cc`. Tests: `tests/test_grid_stroke.cc` (main + roster gates; the per-topic gates
+are `test_grid_stroke_*.cc` over `test_grid_stroke_common.h`); the
 generated GPU uniform packs are graded byte-for-byte by
 `tests/test_gpu_uniform_pack.cc` and end-to-end by
 `tests/test_color_mix_gpu.cc`.

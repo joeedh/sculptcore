@@ -7,9 +7,12 @@ set(SCULPTCORE_KERNELS_DIR_CMAKE "${CMAKE_SOURCE_DIR}/source/brush/kernels")
 configure_file(${CMAKE_CURRENT_SOURCE_DIR}/test_config.h.in
   ${CMAKE_CURRENT_BINARY_DIR}/test_config.h @ONLY)
 
+# `file` names the executable (`<file>_out`, which is what `make.mjs test
+# <name>` resolves); any further arguments are extra sources linked into it,
+# for a test whose gates span several translation units.
 macro(test file extra_lib)
 set(target "${file}_out")
-add_executable(${target} "${file}")
+add_executable(${target} "${file}" ${ARGN})
 target_link_libraries(${target} util platform ${extra_lib} math)
 target_compile_options(${target} PRIVATE -DNO_PARALLEL_FOR)
 target_include_directories(${target} PUBLIC ${CMAKE_CURRENT_BINARY_DIR})
@@ -63,7 +66,15 @@ test(test_grids_store.cc "subdiv;mesh")
 test(test_multires.cc "subdiv;spatial;displace;mesh;vdm")
 test(test_multires_attrs.cc "brush;subdiv;meshlog;spatial;displace;mesh;vdm")
 test(test_grid_domain.cc "subdiv;spatial;displace;mesh;vdm")
-test(test_grid_stroke.cc "brush;subdiv;meshlog;spatial;displace;mesh;vdm")
+test(test_grid_stroke.cc "brush;subdiv;meshlog;spatial;displace;mesh;vdm"
+  test_grid_stroke_ab.cc
+  test_grid_stroke_undo.cc
+  test_grid_stroke_layers.cc
+  test_grid_stroke_session.cc
+  test_grid_stroke_draw_source.cc
+  test_grid_stroke_batch.cc
+  test_grid_stroke_levels.cc
+  test_grid_stroke_attrs.cc)
 test(test_vdm_store.cc "vdm;mesh")
 test(test_vdm_gpu.cc "vdm;mesh")
 test(test_spatial_pick.cc "spatial;mesh")

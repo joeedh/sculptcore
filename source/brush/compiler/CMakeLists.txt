@@ -14,6 +14,11 @@ set(SBRUSHC_CORE_SRC
   lexer.cc
   parser.cc
   emit_cpp.cc
+  emit_cpp_expr.cc
+  emit_cpp_stmt.cc
+  emit_cpp_texture.cc
+  emit_cpp_stages.cc
+  emit_cpp_kernel.cc
   emit_registry.cc
   emit_wgsl.cc
   emit_cuda.cc

@@ -25,6 +25,11 @@ set(SRC
   grid_stroke_log.cc
   PUBLIC multires.h
   multires.cc
+  multires_grid_attrs.cc
+  multires_layers.cc
+  multires_levels.cc
+  multires_materialize.cc
+  multires_propagate.cc
   PUBLIC multires_tuning.h
   multires_tuning.cc
   PUBLIC bindings.h

@@ -8,7 +8,7 @@ the language reference; the compiler and build/verify machinery are in
 [`brush.md`](brush.md).
 
 The surface syntax is C/HLSL-flavored. The C++ emitter is the reference, so
-the semantics of any construct are "what `emit_cpp.cc` produces" — every
+the semantics of any construct are "what `emit_cpp*.cc` produces" — every
 other backend matches it bit-for-bit modulo floating point.
 
 ## A complete example
