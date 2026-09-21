@@ -17,6 +17,8 @@
      crash dumps.
 [ ]: there are two automasking panels in sculptcore mode, the more complete one 
      should be retained make sure it maps properly to sculptcore properties.
+[ ]: the change object mode pie menu shows a 'custom' as well as a 'sculptcore' mode.
+     this appears to be duplicative.
 
 ## shift smooth panel 
 [ ]: create a new panel in the properties editor for shift-smooth properties
