@@ -68,10 +68,12 @@ int main()
 
   b.falloff_shape = FalloffShape::Spherical;
   test_assert(b.insideFalloff(float3(1, 0, 0), nrm));
+  test_assert(b.falloffFootprintRadius(1.5f) == 1.5f);
   test_assert(!b.insideFalloff(float3(std::nextafter(1.0f, 2.0f), 0, 0), nrm));
   b.falloff_shape = FalloffShape::Cube;
   test_assert(b.insideFalloff(float3(.9f, .9f, .9f), nrm));
   test_assert(b.falloffSupportRadius(1) >= float3(.9f, .9f, .9f).length());
+  test_assert(std::fabs(b.falloffFootprintRadius(1) - std::sqrt(2.0f)) < 1e-5f);
   b.falloff_shape = FalloffShape::Linear;
   b.falloff_dir = float3(1, 0, 0);
   test_assert(b.insideFalloff(float3(0, .9f, 0), nrm));
@@ -106,6 +108,10 @@ int main()
   test_assert(b.insideFalloff(float3(1.0f, 0.5f, 0.0f), nrm));
   test_assert(!b.insideFalloff(float3(1.0f, 0.51f, 0.0f), nrm));
   test_assert(b.falloffSupportRadius(1) >= float3(1.0f, 0.5f, 1.0f).length());
+  // The footprint (what a topology pass must cover) is the tangent-plane
+  // corner, not the enclosing sphere; a sphere falloff keeps the radius.
+  test_assert(std::fabs(b.falloffFootprintRadius(2.0f) - 2.0f * std::sqrt(1.25f)) < 1e-5f);
+  test_assert(b.falloffFootprintRadius(2.0f) < b.falloffSupportRadius(2.0f));
   // Roundness 1 is the plain radial (elliptical) metric: sqrt(q0^2 + q1^2).
   b.falloff_roundness = 1.0f;
   test_assert(std::fabs(b.falloffDist(float3(0.6f, 0.0f, 0.0f), nrm) - 0.6f) < 1e-5f);

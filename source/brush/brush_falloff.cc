@@ -94,6 +94,15 @@ float Brush::falloffSupportRadius(float r) const
     return r;
   }
 
+float Brush::falloffFootprintRadius(float r) const
+  {
+    if (falloff_shape == FalloffShape::Cube)
+      return float(double(r) * std::sqrt(2.0));
+    if (falloff_shape == FalloffShape::Box || falloff_shape == FalloffShape::RoundedBox)
+      return float(double(r) * std::hypot(double(falloff_extent[0]), double(falloff_extent[1])));
+    return r;
+  }
+
 bool Brush::insideFalloff(float3 delta, float3 surfaceNo) const
   {
     if (!(radius > 0)) {

@@ -1882,6 +1882,13 @@ public:
     }
     mesh::Mesh *m = tree->m;
 
+    // The host hands over the brush radius; a box tip (Clay Strips) reaches
+    // its corners at sqrt(2) of that across the surface, and an unrefined
+    // corner shows as a coarse rim on every strip. Cover the whole footprint.
+    if (brush && std::isfinite(radius)) {
+      radius = brush->falloffFootprintRadius(radius);
+    }
+
     // Locked bases (multires level meshes) never retopologize: a level mesh is
     // derived from the grid store, so changing its topology strands every
     // level's displacement and the host's grid map (mesh.h topoLocked).

@@ -704,6 +704,12 @@ struct Brush {
   /** Finite enclosing sphere for ordinary brush falloff support. */
   float falloffSupportRadius(float r) const;
 
+  /** How far the falloff reaches across the surface: the tangent-plane
+   * corner of a box tip, `r` for a sphere. The region a topology pass must
+   * cover for a dab of radius `r` (the enclosing sphere also counts the
+   * normal extent, which does not widen the footprint). */
+  float falloffFootprintRadius(float r) const;
+
   /** Linear falloff varies along one axis but remains within the brush sphere. */
   bool insideFalloff(float3 delta, float3 surfaceNo) const;
 
