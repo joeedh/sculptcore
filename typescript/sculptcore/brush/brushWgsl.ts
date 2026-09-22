@@ -4759,9 +4759,16 @@ fn main(
   if ((s == 0.0)) {
     return;
   }
-  var P: vec3<f32> = (ctx_u.surfacePos + (ctx_u.surfaceNo * ((brush_u.planeoff * brush_u.radius))));
+  var offset: f32 = brush_u.planeoff;
+  var side: f32 = brush_u.planeSide;
+  if ((s < 0.0)) {
+    offset = (-offset);
+    side = (-side);
+    s = (-s);
+  }
+  var P: vec3<f32> = (ctx_u.surfacePos + (ctx_u.surfaceNo * ((offset * brush_u.radius))));
   var h: f32 = dot((v_co - P), ctx_u.surfaceNo);
-  if (((h * brush_u.planeSide) < 0.0)) {
+  if (((h * side) < 0.0)) {
     v_co += (ctx_u.surfaceNo * (((-h) * s)));
   }
 

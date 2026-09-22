@@ -32,13 +32,23 @@ brush Plane {
     if (s == 0.0) {
       continue;
     }
-    // Plane point P = surfacePos + surfaceNo * (planeoff * radius); h is the
+    // An inverted dab mirrors the brush through the surface, as Blender's flip
+    // does. Negating the projection alone pushes the active side away from the
+    // plane and leaves verts on the far side (the dab's middle) untouched.
+    float offset = planeoff;
+    float side = planeSide;
+    if (s < 0.0) {
+      offset = -offset;
+      side = -side;
+      s = -s;
+    }
+    // Plane point P = surfacePos + surfaceNo * (offset * radius); h is the
     // signed height of the vertex above that plane along the surface normal.
-    float3 P = surfacePos + surfaceNo * (planeoff * radius);
+    float3 P = surfacePos + surfaceNo * (offset * radius);
     float h = dot(v.co - P, surfaceNo);
-    // Only verts on the active side (planeSide) move; project them onto the
-    // plane by the falloff-scaled strength.
-    if (h * planeSide < 0.0) {
+    // Only verts on the active side move; project them onto the plane by the
+    // falloff-scaled strength.
+    if (h * side < 0.0) {
       v.co += surfaceNo * (-h * s);
     }
   }

@@ -505,6 +505,31 @@ int main()
     f.end();
   }
 
+  // Inverted Clay mirrors the brush through the surface. On a sphere the AREA
+  // centre sits below the pole, so a merely negated projection moved only the
+  // rim and left the pole untouched.
+  {
+    Fixture f;
+    f.sphere();
+    f.brush(SculptBrushes::CLAY, 0.4f, 1.0f, 0.0f, 1.0f);
+    f.scene.brush.invert = true;
+    f.scene.brush.writeProps();
+    f.begin(false);
+    f.policy(PlaneNormalMode::Area, PlaneCenterMode::Area);
+    f.dab(float3(0, 0, 1), float3(0, 0, 1));
+    int pole = -1;
+    for (int v : f.m->v) {
+      if (pole < 0 || f.start[v][2] > f.start[pole][2]) {
+        pole = v;
+      }
+    }
+    const float poleDz = f.m->v.co[pole][2] - f.start[pole][2];
+    fprintf(stderr, "(invert) pole dz=%.6f max dz=%.6f\n", poleDz, f.maxDz());
+    test_assert(poleDz < -1e-3f);
+    test_assert(f.maxDz() <= 1e-6f); // nothing rises on an inverted dab
+    f.end();
+  }
+
   // (a) sphere: AREA normal radial, centre on the axis and inside.
   {
     Fixture f;

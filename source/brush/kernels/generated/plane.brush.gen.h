@@ -36,9 +36,16 @@ static void plane(CommandCtx<TYPES> &ctx)
     if ((s == 0.0f)) {
       continue;
     }
-    float3 P = (ctx.surfacePos + (ctx.surfaceNo * ((ctx.brush.planeoff * ctx.brush.radius))));
+    float offset = ctx.brush.planeoff;
+    float side = ctx.brush.planeSide;
+    if ((s < 0.0f)) {
+      offset = (-offset);
+      side = (-side);
+      s = (-s);
+    }
+    float3 P = (ctx.surfacePos + (ctx.surfaceNo * ((offset * ctx.brush.radius))));
     float h = ((v.co - P)).dot(ctx.surfaceNo);
-    if (((h * ctx.brush.planeSide) < 0.0f)) {
+    if (((h * side) < 0.0f)) {
       v.co += (ctx.surfaceNo * (((-h) * s)));
     }
     ctx.node.affected_verts.append(v.v);
