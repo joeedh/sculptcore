@@ -61,6 +61,24 @@ namespace sculptcore::dyntopo {
 
 enum class DynTopoMode { Subdivide, Collapse, Both };
 
+/** Which edges a dab may touch. The two values are an A/B pair: one is our own
+ * region rule, the other a port of Blender's, so the difference can be measured
+ * rather than argued about. */
+enum class DynTopoRegion {
+  /** An edge is a candidate when its midpoint lies inside the dab sphere.
+   * Refinement stops at the rim and nothing outside the brush is ever touched.
+   * The default, and what every shipped stroke has used. */
+  Sphere,
+  /** Blender's `pbvh_bmesh.cc` scheme. Seeds from faces whose closest point is
+   * inside the sphere, so a triangle far larger than the brush still qualifies —
+   * the case the midpoint test misses entirely. From each seed edge it then
+   * walks outward across mesh adjacency with a goal length that grows
+   * `graded_generation_scale` per hop, giving a geometric density falloff
+   * outside the brush in place of a cliff. That falloff is also what stops the
+   * split scheme fanning one apex into a high-valence hub. */
+  GradedRecursive,
+};
+
 struct DynTopoParams {
   float l_max = 0.10f; /* split edges longer than this (at the brush center) */
   float l_min = 0.04f; /* collapse edges shorter than this (clamped to l_max/2) */
@@ -70,6 +88,32 @@ struct DynTopoParams {
    * into the surrounding mesh instead of cliffing at the brush rim — fewer
    * splits and no high-valence boundary hubs. 0 = uniform (original behavior). */
   float grade = 0.0f;
+  /* Region gating; see DynTopoRegion. The four knobs below are inert under
+   * Sphere, which is the default. */
+  DynTopoRegion region = DynTopoRegion::Sphere;
+  /* Blender's `even_generation_scale`. The goal length multiplies by this each
+   * hop out from the seed, so an edge k hops away must exceed `l_max * this^k`
+   * before it is refined. This factor is the density gradation. Applied to
+   * linear length. */
+  float graded_generation_scale = 1.6f;
+  /* Blender's `even_edgelen_threshold`. The walk only steps into a neighbour
+   * that is also longer than the edge which reached it, so a merely skinny
+   * triangle does not drag its neighbours in. Applied to squared length, as
+   * Blender applies it, which keeps the constant transferable: the default 1.2
+   * is about 1.095x in linear length rather than 1.2x. */
+  float graded_len_sq_factor = 1.2f;
+  /* Hard cap on hop depth. Both gates above grow geometrically, so the walk
+   * terminates well before this on any sane mesh. It exists so that zero-length
+   * edges or NaN coordinates cannot spin it. */
+  int graded_max_hops = 12;
+  /* Blender's post-split valence relief. A vert carrying more than this many
+   * edges has all of them offered for splitting at the unscaled l_max, with no
+   * hop or distance gate, which is what stops one apex being fanned when the
+   * edge opposite it is split over and over. 0 disables it. Note this triggers a
+   * split rather than a flip: splitting only ever shortens an edge, so it cannot
+   * create work, which is the objection that got the valence flip criterion
+   * rejected at `do_flips` below. */
+  int graded_valence_relief = 8;
   /* Tier 9 adaptive sizing: name of an optional per-vertex FLOAT attribute
    * holding a relative size scale s(v) (1 = nominal). When present each edge's
    * [l_min, l_max] band is multiplied by the mean of its endpoints' s, so the BK
@@ -176,6 +220,11 @@ struct DynTopoStats {
   int rounds = 0;
   bool capped = false;     /* hit max_rounds with work still pending */
   bool budget_hit = false; /* stopped early on max_splits (more work remains) */
+  /* Deepest hop the graded walk reached over the whole dab. Measures how far
+   * past the brush rim the refinement actually graded, and so is the headline
+   * A/B number. Stays 0 under Sphere, and under GradedRecursive when nothing
+   * outside the seed faces qualified. */
+  int graded_hops = 0;
   /* Bailed out of a split<->collapse limit cycle (max_stall_rounds). Native-only
    * diagnostic — deliberately NOT bound in bindings.cc, like DynTopoParams::trace. */
   bool stalled = false;
@@ -269,6 +318,183 @@ inline GenSet &traceFaceSeenSet() /* only used when DynTopoParams::trace is set 
 {
   static thread_local GenSet s;
   return s;
+}
+inline GenSet &gradedFaceSeenSet() // DynTopoRegion::GradedRecursive seeding
+{
+  static thread_local GenSet s;
+  return s;
+}
+inline GenSet &gradedRegionVertSet() // verts of every face the graded walk saw
+{
+  static thread_local GenSet s;
+  return s;
+}
+
+/** GenSet's value-carrying sibling: a generation-stamped dense float map that
+ * keeps only the smallest value written per key. The graded walk uses it as its
+ * visited memo. An edge can be reached over several paths at different hop
+ * depths, and the shallowest of those carries the smallest goal length and so is
+ * the permissive one, which makes `improve` returning false mean the arriving
+ * path has nothing new to say.
+ *
+ * The memo is what makes the port affordable. Blender's recursion dedups only
+ * insertion (through BM_ELEM_TAG), never recursion, so it re-walks every path
+ * carrying (parent length, limit). But the state that matters at an edge is (its
+ * own length, limit), and an edge's own length does not depend on the path taken
+ * to it. The limit is therefore the whole story, and keeping its minimum per
+ * edge reproduces Blender's candidate set without the repeated descents. */
+struct GenMinMap {
+  litestl::util::Vector<uint32_t> stamp;
+  litestl::util::Vector<float> value;
+  uint32_t gen = 0;
+
+  void growTo(int n)
+  {
+    int old = int(stamp.size());
+    if (old >= n) {
+      return;
+    }
+    litestl::alloc::PermanentGuard guard; /* persistent buffer: not a leak */
+    stamp.resize(n);
+    value.resize(n);
+    for (int i = old; i < n; i++) {
+      stamp[i] = 0;
+      value[i] = 0.0f;
+    }
+  }
+  void reset(int n)
+  {
+    growTo(n);
+    if (++gen == 0) {
+      for (int i = 0; i < int(stamp.size()); i++) {
+        stamp[i] = 0;
+      }
+      gen = 1;
+    }
+  }
+  /* True iff `i` was unset this generation, or `v` beats what it holds. */
+  bool improve(int i, float v)
+  {
+    if (uint32_t(i) >= uint32_t(stamp.size())) {
+      growTo(i + 1);
+    }
+    if (stamp[i] == gen && value[i] <= v) {
+      return false;
+    }
+    stamp[i] = gen;
+    value[i] = v;
+    return true;
+  }
+  bool contains(int i) const
+  {
+    return uint32_t(i) < uint32_t(stamp.size()) && stamp[i] == gen;
+  }
+};
+inline GenMinMap &gradedLimitMap()
+{
+  static thread_local GenMinMap m;
+  return m;
+}
+
+/** Closest point to `p` on triangle (a, b, c) — Ericson, Real-Time Collision
+ * Detection 5.1.5 (barycentric region test). Needed because the graded region
+ * seeds on faces rather than edge midpoints. Blender's
+ * `edge_queue_tri_in_sphere` runs exactly this, and it is the reason a triangle
+ * far larger than the brush still qualifies there. */
+inline litestl::math::float3 closestPointTri(litestl::math::float3 p,
+                                             litestl::math::float3 a,
+                                             litestl::math::float3 b,
+                                             litestl::math::float3 c)
+{
+  using litestl::math::float3;
+  float3 ab = b - a, ac = c - a, ap = p - a;
+  float d1 = ab.dot(ap), d2 = ac.dot(ap);
+  if (d1 <= 0.0f && d2 <= 0.0f) {
+    return a;
+  }
+  float3 bp = p - b;
+  float d3 = ab.dot(bp), d4 = ac.dot(bp);
+  if (d3 >= 0.0f && d4 <= d3) {
+    return b;
+  }
+  float vc = d1 * d4 - d3 * d2;
+  if (vc <= 0.0f && d1 >= 0.0f && d3 <= 0.0f) {
+    float denom = d1 - d3;
+    return a + ab * (denom != 0.0f ? d1 / denom : 0.0f);
+  }
+  float3 cp = p - c;
+  float d5 = ab.dot(cp), d6 = ac.dot(cp);
+  if (d6 >= 0.0f && d5 <= d6) {
+    return c;
+  }
+  float vb = d5 * d2 - d1 * d6;
+  if (vb <= 0.0f && d2 >= 0.0f && d6 <= 0.0f) {
+    float denom = d2 - d6;
+    return a + ac * (denom != 0.0f ? d2 / denom : 0.0f);
+  }
+  float va = d3 * d6 - d5 * d4;
+  if (va <= 0.0f && (d4 - d3) >= 0.0f && (d5 - d6) >= 0.0f) {
+    float denom = (d4 - d3) + (d5 - d6);
+    return b + (c - b) * (denom != 0.0f ? (d4 - d3) / denom : 0.0f);
+  }
+  float denom = va + vb + vc;
+  if (denom == 0.0f) {
+    return a; /* degenerate triangle */
+  }
+  denom = 1.0f / denom;
+  return a + ab * (vb * denom) + ac * (vc * denom);
+}
+
+/** Fetch face `f`'s three corner verts. False if it isn't a plain triangle. */
+inline bool triVerts(mesh::Mesh &m, int f, int out[3])
+{
+  if (f < 0 || f >= int(m.f.capacity()) || m.f.freemap[f] || m.f.list_count[f] != 1) {
+    return false;
+  }
+  int li = m.f.l[f];
+  if (m.l.size[li] != 3) {
+    return false;
+  }
+  int c0 = m.l.c[li];
+  out[0] = m.c.v[c0];
+  out[1] = m.c.v[m.c.next[c0]];
+  out[2] = m.c.v[m.c.prev[c0]];
+  return true;
+}
+
+/** Blender's `edge_queue_tri_in_sphere`: does the triangle itself reach into
+ * the dab? This test is strictly weaker than asking whether an edge midpoint is
+ * in the dab, and the case it adds is a triangle that contains the brush. */
+inline bool triInSphere(mesh::Mesh &m,
+                        int f,
+                        litestl::math::float3 center,
+                        float r2,
+                        int vs[3])
+{
+  if (!triVerts(m, f, vs)) {
+    return false;
+  }
+  litestl::math::float3 cl =
+      closestPointTri(center, m.v.co[vs[0]], m.v.co[vs[1]], m.v.co[vs[2]]);
+  return (cl - center).lengthSqr() <= r2;
+}
+
+/** Does `v`'s disk hold more than `over` edges? Stops counting at the
+ * threshold, so the valence relief costs O(threshold) rather than O(valence) on
+ * the hubs it exists to catch. */
+inline bool vertValenceOver(mesh::Mesh &m, int v, int over)
+{
+  if (v < 0 || v >= int(m.v.capacity()) || m.v.freemap[v] || m.v.e[v] == ELEM_NONE) {
+    return false;
+  }
+  int n = 0;
+  for (int e : mesh::EdgeOfVertIter(&m, v, m.v.e[v])) {
+    (void)e;
+    if (++n > over) {
+      return true;
+    }
+  }
+  return false;
 }
 
 /* Smallest interior angle (radians) of triangle face f. Matches the survey
@@ -854,6 +1080,55 @@ inline DynTopoStats runDyntopoRemesh(mesh::Mesh &m,
     Vector<Cand> picked;
     detail::GenSet &seen = detail::scanSeenSet();
     seen.reset(int(m.e.capacity()));
+    // Queue `e` as a split; the caller has already length-tested it against
+    // `tmax`. Both region modes append through here, so the budget cap and the
+    // band-pressure trace stay in one place.
+    auto emitSplit = [&](int e, float L, float tmax) {
+      if (splitCandCap > 0 && splitCands >= splitCandCap) {
+        return;
+      }
+      cands.append({e, true}); /* split always allowed; flags propagate */
+      splitCands++;
+      if (p.trace) {
+        trSplitCands++;
+        float over = L / tmax;
+        if (over > trMaxOver) {
+          trMaxOver = over;
+        }
+      }
+    };
+    // The collapse counterpart. The feature gate lives here, so unlike splits
+    // this can still refuse the edge, and it reports whether it queued one.
+    auto emitCollapse = [&](int e, float L, float tmin) {
+      if (collapseCandCap > 0 && collapseCands >= collapseCandCap) {
+        return false;
+      }
+      /* Feature preservation (Decision B): pin feature verts, but allow a
+       * feature edge to collapse along its own collinear curve. */
+      if (feat.active) {
+        bool fv0 = feat.isFeatureVert(m.e.vs[e][0]);
+        bool fv1 = feat.isFeatureVert(m.e.vs[e][1]);
+        if (fv0 || fv1) {
+          if (feat.isFeatureEdge(e)) {
+            if (!detail::featureCollapseOk(m, e, feat, p.feature_corner_angle)) {
+              return false; /* corner / junction / mixed curve: don't collapse */
+            }
+          } else {
+            return false; /* non-feature edge touching a feature vert: would tear */
+          }
+        }
+      }
+      cands.append({e, false});
+      collapseCands++;
+      if (p.trace) {
+        trCollapseCands++;
+        float under = tmin > 1e-20f ? L / tmin : 0.0f;
+        if (trCollapseCands == 1 || under < trMinUnder) {
+          trMinUnder = under;
+        }
+      }
+      return true;
+    };
     auto consider = [&](int e) {
       if (m.e.freemap[e] || m.e.c[e] == ELEM_NONE || !seen.add(e)) {
         return; /* freed, wire, or already considered this round */
@@ -879,46 +1154,9 @@ inline DynTopoStats runDyntopoRemesh(mesh::Mesh &m,
       }
       float L = detail::edgeLen(m, e);
       if (doSplit && L > tmax) {
-        if (splitCandCap > 0 && splitCands >= splitCandCap) {
-          return;
-        }
-        cands.append({e, true}); /* split always allowed; flags propagate */
-        splitCands++;
-        if (p.trace) {
-          trSplitCands++;
-          float over = L / tmax;
-          if (over > trMaxOver) {
-            trMaxOver = over;
-          }
-        }
+        emitSplit(e, L, tmax);
       } else if (doCollapse && L < tmin) {
-        if (collapseCandCap > 0 && collapseCands >= collapseCandCap) {
-          return;
-        }
-        /* Feature preservation (Decision B): pin feature verts, but allow a
-         * feature edge to collapse along its own collinear curve. */
-        if (feat.active) {
-          bool fv0 = feat.isFeatureVert(m.e.vs[e][0]);
-          bool fv1 = feat.isFeatureVert(m.e.vs[e][1]);
-          if (fv0 || fv1) {
-            if (feat.isFeatureEdge(e)) {
-              if (!detail::featureCollapseOk(m, e, feat, p.feature_corner_angle)) {
-                return; /* corner / junction / mixed curve: don't collapse */
-              }
-            } else {
-              return; /* non-feature edge touching a feature vert: would tear */
-            }
-          }
-        }
-        cands.append({e, false});
-        collapseCands++;
-        if (p.trace) {
-          trCollapseCands++;
-          float under = tmin > 1e-20f ? L / tmin : 0.0f;
-          if (trCollapseCands == 1 || under < trMinUnder) {
-            trMinUnder = under;
-          }
-        }
+        emitCollapse(e, L, tmin);
       }
     };
     auto considerVertEdges = [&](int v) {
@@ -929,7 +1167,194 @@ inline DynTopoStats runDyntopoRemesh(mesh::Mesh &m,
         consider(e);
       }
     };
-    if (firstRound) {
+
+    /* DynTopoRegion::GradedRecursive has three pieces, mirroring Blender's
+     `long_edge_queue_face_add`, `long_edge_queue_edge_add_recursive` and its
+     post-split valence relief in turn:
+
+       1. seed on faces reaching into the dab, taking all three edges at the
+          uniform band. That seed is also the whole of the collapse rule, since
+          Blender grades subdivision only and `short_edge_queue_face_add` does
+          not recurse;
+       2. walk outward from each over-length seed edge, multiplying the goal
+          length by `graded_generation_scale` per hop, so that refinement decays
+          into the surrounding mesh instead of cliffing at the rim;
+       3. offer every edge of an over-valence vert at the unscaled l_max.
+
+     `seen` means "already queued" in this mode rather than "already examined".
+     The walk can reach an edge at several depths and has to stay free to re-test
+     it when a shallower path turns up, so it is the `gradedLimits` memo that
+     bounds the walk. The two modes never run together and share the buffer. */
+    const bool graded = p.region == DynTopoRegion::GradedRecursive;
+    detail::GenMinMap &gradedLimits = detail::gradedLimitMap();
+    detail::GenSet &regionVerts = detail::gradedRegionVertSet();
+    if (graded) {
+      detail::GenSet &fseen = detail::gradedFaceSeenSet();
+      gradedLimits.reset(int(m.e.capacity()));
+      regionVerts.reset(int(m.v.capacity()));
+      fseen.reset(int(m.f.capacity()));
+
+      struct Hop {
+        int edge;
+        float limit;
+        int hop;
+      };
+      Vector<Hop, 64> stack;
+      const float genScale = p.graded_generation_scale > 1.0f ? p.graded_generation_scale
+                                                             : 1.0f + 1e-3f;
+      const int maxHops = p.graded_max_hops > 0 ? p.graded_max_hops : 0;
+
+      auto push = [&](int e, float limit, int hop) {
+        if (hop > maxHops || m.e.freemap[e] || m.e.c[e] == ELEM_NONE) {
+          return;
+        }
+        if (!gradedLimits.improve(e, limit)) {
+          return; // already reachable at least this permissively
+        }
+        stack.append({e, limit, hop});
+      };
+
+      // 1. Seed: every face reaching into the dab.
+      auto seedFace = [&](int f) {
+        int vs[3];
+        if (!fseen.add(f) || !detail::triInSphere(m, f, center, r2, vs)) {
+          return;
+        }
+        for (int i = 0; i < 3; i++) {
+          regionVerts.add(vs[i]);
+        }
+        int li = m.f.l[f], c0 = m.l.c[li], cc = c0;
+        do {
+          int e = m.c.e[cc];
+          cc = m.c.next[cc];
+          if (m.e.freemap[e] || m.e.c[e] == ELEM_NONE) {
+            continue;
+          }
+          float L = detail::edgeLen(m, e);
+          if (doSplit && L > p.l_max) {
+            if (seen.add(e)) {
+              emitSplit(e, L, p.l_max);
+            }
+            push(e, p.l_max, 0); // and grade outward from it
+          } else if (doCollapse && L < l_min && seen.add(e)) {
+            emitCollapse(e, L, l_min);
+          }
+        } while (cc != c0);
+      };
+      auto seedVertFaces = [&](int v) {
+        if (v < 0 || v >= int(m.v.capacity()) || m.v.freemap[v] || m.v.e[v] == ELEM_NONE)
+        {
+          return;
+        }
+        for (int e : mesh::EdgeOfVertIter(&m, v, m.v.e[v])) {
+          int rc0 = m.e.c[e];
+          if (rc0 == ELEM_NONE) {
+            continue;
+          }
+          int rcc = rc0;
+          do {
+            seedFace(m.l.f[m.c.l[rcc]]);
+            rcc = m.c.radial_next[rcc];
+          } while (rcc != rc0);
+        }
+      };
+      /* 3. Valence relief. Blender fires this on the apex of a face it has just
+       split, so the hub is queued geometry by construction; the round-loop
+       equivalent is a vert the seed or the walk reached, hence the regionVerts
+       gate. Without it the relief is the one rule here with no distance bound at
+       all, and re-running it on the whole frontier every round walks the
+       refinement steadily off across the mesh. */
+      auto valenceRelief = [&](int v) {
+        if (!doSplit || p.graded_valence_relief <= 0 || !regionVerts.contains(v) ||
+            !detail::vertValenceOver(m, v, p.graded_valence_relief))
+        {
+          return;
+        }
+        for (int e : mesh::EdgeOfVertIter(&m, v, m.v.e[v])) {
+          if (m.e.freemap[e] || m.e.c[e] == ELEM_NONE) {
+            continue;
+          }
+          float L = detail::edgeLen(m, e);
+          if (L > p.l_max && seen.add(e)) {
+            emitSplit(e, L, p.l_max);
+          }
+        }
+      };
+
+      const bool fullScan = firstRound && seedVerts.size() == 0;
+      auto forEachSeedVert = [&](auto &&fn) {
+        if (fullScan) {
+          for (int v : m.v) {
+            fn(v);
+          }
+        } else if (firstRound) {
+          for (int v : seedVerts) {
+            fn(v);
+          }
+        } else {
+          for (int v : frontier) {
+            fn(v);
+          }
+        }
+      };
+      if (fullScan) {
+        for (int f : m.f) {
+          seedFace(f); /* round 0, unseeded: one full-mesh scan */
+        }
+      } else {
+        forEachSeedVert(seedVertFaces);
+      }
+
+      // 2. The graded walk. Lengths are compared squared throughout, so that
+      // `graded_len_sq_factor` carries Blender's constant verbatim.
+      while (!stack.isEmpty()) {
+        Hop h = stack.pop_back();
+        if (m.e.freemap[h.edge] || m.e.c[h.edge] == ELEM_NONE) {
+          continue;
+        }
+        math::float3 ev0 = m.v.co[m.e.vs[h.edge][0]], ev1 = m.v.co[m.e.vs[h.edge][1]];
+        float lenSq = (ev0 - ev1).lengthSqr();
+        if (lenSq <= h.limit * h.limit) {
+          continue;
+        }
+        if (h.hop > stats.graded_hops) {
+          stats.graded_hops = h.hop;
+        }
+        if (doSplit && seen.add(h.edge)) {
+          emitSplit(h.edge, std::sqrt(lenSq), h.limit);
+        }
+        const float newLimit = h.limit * genScale;
+        const float gateSq = std::max(lenSq * p.graded_len_sq_factor, newLimit * newLimit);
+        int rc0 = m.e.c[h.edge], rcc = rc0;
+        do {
+          int li = m.c.l[rcc];
+          if (m.l.size[li] == 3) {
+            // The face's other two edges, Blender's `l_iter->next/prev`.
+            int adj[2] = {m.c.e[m.c.next[rcc]], m.c.e[m.c.prev[rcc]]};
+            regionVerts.add(m.c.v[rcc]);
+            regionVerts.add(m.c.v[m.c.next[rcc]]);
+            regionVerts.add(m.c.v[m.c.prev[rcc]]);
+            for (int i = 0; i < 2; i++) {
+              int e2 = adj[i];
+              if (m.e.freemap[e2]) {
+                continue;
+              }
+              math::float3 a = m.v.co[m.e.vs[e2][0]], b = m.v.co[m.e.vs[e2][1]];
+              if ((a - b).lengthSqr() > gateSq) {
+                push(e2, newLimit, h.hop + 1);
+              }
+            }
+          }
+          rcc = m.c.radial_next[rcc];
+        } while (rcc != rc0);
+      }
+
+      // The relief runs last so regionVerts is complete when it reads it.
+      if (doSplit && p.graded_valence_relief > 0) {
+        forEachSeedVert(valenceRelief);
+      }
+      firstRound = false;
+    } else if (firstRound) {
       if (seedVerts.size() > 0) {
         for (int v : seedVerts) {
           considerVertEdges(v); /* round 0, seeded: local to the brush */
@@ -1055,6 +1480,25 @@ inline DynTopoStats runDyntopoRemesh(mesh::Mesh &m,
       }
     }
 
+    /* Under GradedRecursive the outward splits land outside the dab sphere, so
+     the flip and smooth gates below follow the walk's region instead. Left on
+     the sphere they would refuse to clean up the geometry the grading had just
+     created, which is the cascade the flip sweep exists to break. The verts an
+     applied edit touched join the region for the same reason, a spoke created
+     this round having been unreachable when the walk ran. */
+    if (graded) {
+      for (int v : touched) {
+        regionVerts.add(v);
+      }
+    }
+    auto inRegionVert = [&](int v) {
+      return graded ? regionVerts.contains(v) : (m.v.co[v] - center).lengthSqr() <= r2;
+    };
+    auto inRegionEdge = [&](int e) {
+      return graded ? (regionVerts.contains(m.e.vs[e][0]) || regionVerts.contains(m.e.vs[e][1]))
+                    : (detail::edgeMid(m, e) - center).lengthSqr() <= r2;
+    };
+
     /* 5. Geometric flip sweep (M7.2): shorten the long spokes this round's
      *    splits just created, before they cascade into more splits. Collect the
      *    in-region interior edges around the touched verts first (read-only),
@@ -1074,7 +1518,7 @@ inline DynTopoStats runDyntopoRemesh(mesh::Mesh &m,
           if (m.e.freemap[e] || !eseen.add(e)) {
             continue;
           }
-          if ((detail::edgeMid(m, e) - center).lengthSqr() > r2) {
+          if (!inRegionEdge(e)) {
             continue;
           }
           if (feat.isFeatureEdge(e)) {
@@ -1116,7 +1560,7 @@ inline DynTopoStats runDyntopoRemesh(mesh::Mesh &m,
         if (v < 0 || v >= int(m.v.capacity()) || m.v.freemap[v]) {
           continue;
         }
-        if ((m.v.co[v] - center).lengthSqr() > r2) {
+        if (!inRegionVert(v)) {
           continue;
         }
         if (feat.isFeatureVert(v)) {

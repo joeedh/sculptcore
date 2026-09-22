@@ -21,6 +21,17 @@ const BindingBase *Binder<sculptcore::dyntopo::DynTopoMode>::bind()
   e->addItem("Both", int(DynTopoMode::Both));
   return e;
 }
+
+// Same treatment for the region-gating enum (the Sphere / Blender-port A/B).
+const BindingBase *Binder<sculptcore::dyntopo::DynTopoRegion>::bind()
+{
+  using sculptcore::dyntopo::DynTopoRegion;
+  types::Enum *e =
+      new types::Enum("sculptcore::dyntopo::DynTopoRegion", sizeof(DynTopoRegion));
+  e->addItem("Sphere", int(DynTopoRegion::Sphere));
+  e->addItem("GradedRecursive", int(DynTopoRegion::GradedRecursive));
+  return e;
+}
 } // namespace litestl::binding
 
 namespace sculptcore::dyntopo {
@@ -38,6 +49,11 @@ litestl::binding::types::Struct<DynTopoParams> *DynTopoParams::defineBindings()
   BIND_STRUCT_MEMBER(st, l_min);
   BIND_STRUCT_MEMBER(st, mode);
   BIND_STRUCT_MEMBER(st, grade);
+  BIND_STRUCT_MEMBER(st, region);
+  BIND_STRUCT_MEMBER(st, graded_generation_scale);
+  BIND_STRUCT_MEMBER(st, graded_len_sq_factor);
+  BIND_STRUCT_MEMBER(st, graded_max_hops);
+  BIND_STRUCT_MEMBER(st, graded_valence_relief);
   BIND_STRUCT_MEMBER(st, max_rounds);
   BIND_STRUCT_MEMBER(st, do_flips);
   BIND_STRUCT_MEMBER(st, max_splits);
@@ -66,6 +82,7 @@ litestl::binding::types::Struct<DynTopoStats> *DynTopoStats::defineBindings()
   BIND_STRUCT_MEMBER(st, rounds);
   BIND_STRUCT_MEMBER(st, capped);
   BIND_STRUCT_MEMBER(st, budget_hit);
+  BIND_STRUCT_MEMBER(st, graded_hops);
 
   return st;
 }
@@ -74,6 +91,7 @@ void registerBindings(litestl::binding::BindingManager &manager)
 {
   using namespace litestl::binding;
   manager.add(Bind<DynTopoMode>());
+  manager.add(Bind<DynTopoRegion>());
   manager.add(Bind<DynTopoParams>());
   manager.add(Bind<DynTopoStats>());
 }

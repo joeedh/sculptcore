@@ -230,6 +230,9 @@ bool execBenchVerb(Scene &scene,
     scene.dyntopoParams.l_min = detail * 0.4f;
     scene.dyntopoParams.grade = getFloat(args, "grade", 0.0f);
     scene.dyntopoParams.do_flips = getBool(args, "flip", true);
+    scene.dyntopoParams.region = getBool(args, "graded", false)
+                                    ? dyntopo::DynTopoRegion::GradedRecursive
+                                    : dyntopo::DynTopoRegion::Sphere;
     scene.dyntopoParams.max_splits = getInt(args, "max_splits", 0);
     scene.dyntopoParams.do_smooth = getBool(args, "smooth", false);
     scene.dyntopoParams.smooth_lambda = getFloat(args, "smooth_lambda", 0.5f);

@@ -178,7 +178,7 @@ bool execSetupVerb(Scene &scene,
   if (verb == "dyntopo") {
     /* Configure dynamic topology for subsequent strokes:
      *   dyntopo enabled=1 detail=F [min=F] [mode=both|subdivide|collapse]
-     *           [max_rounds=N] [seed=N]
+     *           [max_rounds=N] [seed=N] [graded=0|1]
      * detail sets the target (l_max); min defaults to 0.4*detail. */
     scene.dyntopoEnabled = getBool(args, "enabled", true);
     float detail = getFloat(args, "detail", scene.dyntopoParams.l_max);
@@ -186,6 +186,11 @@ bool execSetupVerb(Scene &scene,
     scene.dyntopoParams.l_min = getFloat(args, "min", detail * 0.4f);
     scene.dyntopoParams.grade = getFloat(args, "grade", scene.dyntopoParams.grade);
     scene.dyntopoParams.do_flips = getBool(args, "flip", scene.dyntopoParams.do_flips);
+    if (getArg(args, "graded", nullptr)) {
+      scene.dyntopoParams.region = getBool(args, "graded", false)
+                                      ? dyntopo::DynTopoRegion::GradedRecursive
+                                      : dyntopo::DynTopoRegion::Sphere;
+    }
     scene.dyntopoParams.max_splits =
         getInt(args, "max_splits", scene.dyntopoParams.max_splits);
     scene.dyntopoParams.do_smooth =

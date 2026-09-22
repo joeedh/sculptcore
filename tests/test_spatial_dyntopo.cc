@@ -203,6 +203,93 @@ int main()
   test_assert(leavesCap > 0);
   test_assert(leavesCap < m->f.count); /* far fewer leaves than faces */
 
+  /* Run GradedRecursive through the same callbacks, driven the way the brush
+   * executor drives it, where round-0 seeds are the in-region leaves' verts
+   * rather than a full-mesh scan. This mode edits geometry outside the dab
+   * region, and a face created beyond the filtered leaves still has to be placed
+   * and owned like any other, so that is the risk this covers. */
+  {
+    Mesh *gm = makeTriGrid(13);
+    spatial::SpatialTree *gt = alloc::New<spatial::SpatialTree>("graded tree", gm);
+    gt->leaf_limit = 96;
+    gt->buildAll();
+
+    const float3 center(0, 0, 0);
+    const float radius = 0.15f;
+    test_assert(validateOwnership(gt, gm, "graded-build") == gm->f.count);
+
+    // The executor's seed: every vert of every leaf the dab's sphere touches.
+    util::Vector<spatial::SpatialNode *> hit;
+    gt->filterNodes(center, radius, hit);
+    util::Vector<int> seedVerts;
+    for (spatial::SpatialNode *n : hit) {
+      for (int v : n->unique_verts()) {
+        seedVerts.append(v);
+      }
+    }
+    test_assert(seedVerts.size() > 0);
+
+    dyntopo::DynTopoParams gp;
+    gp.l_max = 0.03f;
+    gp.l_min = 0.005f;
+    gp.mode = dyntopo::DynTopoMode::Subdivide;
+    gp.region = dyntopo::DynTopoRegion::GradedRecursive;
+
+    int gBefore = gm->f.count;
+    dyntopo::DynTopoStats gst = dyntopo::runDyntopoRemesh(
+        *gm,
+        center,
+        radius,
+        gp,
+        /*seed=*/77u,
+        gt->getSpatialCallbacks(),
+        util::span<const int>(seedVerts.data(), seedVerts.size()));
+
+    test_assert(gst.splits > 0);
+    // Seeded from leaves rather than a full scan, the walk still got outward.
+    test_assert(gst.graded_hops > 0);
+    test_assert(validateOwnership(gt, gm, "graded-incremental") == gm->f.count);
+
+    gt->applyDeferredNodeSplit();
+    for (auto *leaf : gt->leaves()) {
+      gt->ensure_node_tris(leaf);
+    }
+    test_assert(validateOwnership(gt, gm, "graded-post-regen") == gm->f.count);
+
+    /* A second seeded dab at the same place converges without further work, so
+     * the seeded path does not chase the geometry it just put outside the dab.
+     * Re-derive the seed: the first dab changed which verts the leaves hold. */
+    hit.clear();
+    gt->filterNodes(center, radius, hit);
+    seedVerts.clear();
+    for (spatial::SpatialNode *n : hit) {
+      for (int v : n->unique_verts()) {
+        seedVerts.append(v);
+      }
+    }
+    dyntopo::DynTopoStats gst2 = dyntopo::runDyntopoRemesh(
+        *gm,
+        center,
+        radius,
+        gp,
+        /*seed=*/77u,
+        gt->getSpatialCallbacks(),
+        util::span<const int>(seedVerts.data(), seedVerts.size()));
+    test_assert(gst2.splits == 0);
+    test_assert(validateOwnership(gt, gm, "graded-converged") == gm->f.count);
+
+    printf("spatial_dyntopo graded: %d -> %d faces, %d splits, %d hops, "
+           "%d seed verts\n",
+           gBefore,
+           gm->f.count,
+           gst.splits,
+           gst.graded_hops,
+           int(seedVerts.size()));
+
+    alloc::Delete(gt);
+    alloc::Delete(gm);
+  }
+
   printf("spatial_dyntopo test: ok (%d -> %d faces, %d splits, %d -> %d leaves, "
          "e2e peak %d)\n",
          fBefore,

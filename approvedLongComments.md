@@ -37,3 +37,6 @@ source/meshlog/meshlog_base.h:MeshLog::endStep:refresh created-vert positions fr
 source/meshlog/meshlog_base.h:MeshLog::pushTopoChunk:why the outgoing topo chunk is finalized per-dab, not at endStep
 source/meshlog/meshlog_base.h:MeshLog::undo:why chunks undo in reverse creation order; topo chunk and element store no longer overlap on dyntopo-moved verts
 source/meshlog/meshlog_base.h:MeshLog::redo:why chunks redo in forward creation order, each fully applied before the next
+source/dyntopo/dyntopo.h:runDyntopoRemesh:the three pieces of DynTopoRegion::GradedRecursive and why `seen` changes meaning under it
+source/dyntopo/dyntopo.h:runDyntopoRemesh:why the flip/smooth region follows the graded walk instead of the dab sphere
+source/dyntopo/dyntopo.h:runDyntopoRemesh:why the graded valence relief is gated on regionVerts

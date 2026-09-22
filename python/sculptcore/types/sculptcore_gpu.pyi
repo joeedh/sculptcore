@@ -21,6 +21,7 @@ class FalloffShape(IntEnum):
     CUBE = 1
     LINEAR = 2
     BOX = 3
+    ROUNDED_BOX = 4
 
 class GPUType(IntEnum):
     TYPE_INVALID = -1

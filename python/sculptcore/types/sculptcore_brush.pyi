@@ -45,7 +45,11 @@ class SculptBrushes(IntEnum):
     LAYERDRAW = 20
     ENHANCE = 21
     TEXGRAD = 22
-    NUDGE = 23
+    CREASE = 23
+    BLOB = 24
+    PLANE = 25
+    ROTATE = 26
+    NUDGE = 27
 
 class TexCoordSpace(IntEnum):
     GLOBAL = 0
@@ -109,6 +113,7 @@ class BrushDefFlags(BoundObject):
     writesColor: bool
     faceMode: bool
     readsVclass: bool
+    usesPlaneFrame: bool
 
 class CommandExecutor(BoundObject):
     brush: Brush | None
@@ -134,6 +139,8 @@ class CommandExecutor(BoundObject):
     def setAnchoredGrab(self, anchored: bool) -> None: ...
     def setGrabAccumAdd(self, add: bool) -> None: ...
     def setStrokeGen(self, gen: int32) -> None: ...
+    def setPlaneFrame(self, normalMode: int32, centerMode: int32, originalNormal: bool, originalPlane: bool, normalRadiusFactor: float, areaRadiusFactor: float, stabilizeNormal: float, stabilizePlane: float, viewX: float, viewY: float, viewZ: float) -> None: ...
+    def setImageSign(self, sx: float, sy: float, sz: float, isMirror: bool) -> None: ...
     def lastUniformValidationOk(self) -> bool: ...
     def preflightRaw(self, type: SculptBrushes) -> bool: ...
     def preflightRawProgram(self, program: BrushProgram) -> bool: ...
@@ -173,6 +180,9 @@ class Brush(BoundObject):
     nu: float
     unboundedExtent: float
     pinch: float
+    planeHeight: float
+    planeDepth: float
+    rotateAngle: float
     projection: float
     rake: float
     reproject_uvs: bool
@@ -198,6 +208,7 @@ class Brush(BoundObject):
     def falloff_dir(self) -> float3: ...
     @property
     def falloff_extent(self) -> float3: ...
+    falloff_roundness: float
     planeSide: float
     @property
     def strokeDir(self) -> float3: ...

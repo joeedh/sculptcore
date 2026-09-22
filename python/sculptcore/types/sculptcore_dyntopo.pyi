@@ -8,11 +8,20 @@ class DynTopoMode(IntEnum):
     Collapse = 1
     Both = 2
 
+class DynTopoRegion(IntEnum):
+    Sphere = 0
+    GradedRecursive = 1
+
 class DynTopoParams(BoundObject):
     l_max: float
     l_min: float
     mode: DynTopoMode
     grade: float
+    region: DynTopoRegion
+    graded_generation_scale: float
+    graded_len_sq_factor: float
+    graded_max_hops: int32
+    graded_valence_relief: int32
     max_rounds: int32
     do_flips: bool
     max_splits: int32
@@ -30,3 +39,4 @@ class DynTopoStats(BoundObject):
     rounds: int32
     capped: bool
     budget_hit: bool
+    graded_hops: int32

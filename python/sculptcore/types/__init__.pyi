@@ -15,6 +15,7 @@ from .sculptcore_gpu import UniformBindType as UniformBindType
 from .sculptcore_mesh import AttrUse as AttrUse
 from .sculptcore_dyntopo import DynTopoMode as DynTopoMode
 from .sculptcore_gpu import FalloffKind as FalloffKind
+from .sculptcore_dyntopo import DynTopoRegion as DynTopoRegion
 from .sculptcore_spatial import NodeFlags as NodeFlags
 from .sculptcore_gpu import GPUFetchMode as GPUFetchMode
 from .sculptcore_mesh import AttrType as AttrType
