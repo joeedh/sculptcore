@@ -399,7 +399,8 @@ struct LogChunkTopo : public LogChunk {
         if (e->kind != LogElemKind::Face)
           continue;
         if (e->origin == LogOrigin::Existed && e->fate == LogFate::Dead) {
-          tree->add_face(e->begin_mesh_index);
+          // A tiny culled piece has no owned neighbour, so add_face would drop it for its area.
+          tree->restore_face(e->begin_mesh_index);
           tree->flag_face_owner_normals(e->begin_mesh_index);
         } else if (e->origin == LogOrigin::Existed && e->fate == LogFate::Live) {
           // double check face is in tree

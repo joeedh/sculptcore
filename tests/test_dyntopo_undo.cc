@@ -4,6 +4,7 @@
  * (this passes) or broken (this crashes/fails), separate from the debug-app
  * freeze-thaw + tree-rebuild interaction. */
 #include "test_util.h"
+#include "spatial_ownership.h"
 
 #include "dyntopo/dyntopo.h"
 #include "litestl/math/vector.h"
@@ -34,6 +35,7 @@ using namespace sculptcore;
 using namespace sculptcore::mesh;
 using namespace sculptcore::meshlog;
 using litestl::math::float3;
+using sculptcore::test::validateOwnership;
 
 namespace {
 
@@ -186,53 +188,6 @@ Mesh *makeTriGrid(int n)
   return m;
 }
 
-/* Every live face is owned by exactly one leaf, owner ids agree, the per-leaf
- * unique_faces hold only live faces, and every live face/vert is covered.
- * Returns the owned-face count, or -1 on any inconsistency. (Mirrors
- * test_spatial_dyntopo's validator — the invariant the tree must hold after an
- * undo/redo that reconciles ownership.) */
-int validateOwnership(spatial::SpatialTree *tree, Mesh *m, const char *tag)
-{
-  int owned = 0, ownedV = 0;
-  for (auto *leaf : tree->leaves()) {
-    if (!leaf->data)
-      continue;
-    for (int f : leaf->data->unique_faces) {
-      if (m->f.freemap[f]) {
-        fprintf(stderr, "[%s] leaf %d owns dead face %d\n", tag, leaf->id, f);
-        return -1;
-      }
-      if (tree->treeMesh.f.node[f] != leaf->id) {
-        fprintf(stderr,
-                "[%s] face %d owner %d != leaf %d\n",
-                tag,
-                f,
-                tree->treeMesh.f.node[f],
-                leaf->id);
-        return -1;
-      }
-      owned++;
-    }
-    for (int v : leaf->data->unique_verts) {
-      if (m->v.freemap[v]) {
-        fprintf(stderr, "[%s] leaf %d owns dead vert %d\n", tag, leaf->id, v);
-        return -1;
-      }
-      ownedV++;
-    }
-  }
-  for (int f : m->f) {
-    if (tree->treeMesh.f.node[f] == 0) {
-      fprintf(stderr, "[%s] live face %d is unowned\n", tag, f);
-      return -1;
-    }
-  }
-  if (ownedV != m->v.count) {
-    fprintf(stderr, "[%s] %d verts owned but mesh has %d\n", tag, ownedV, m->v.count);
-    return -1;
-  }
-  return owned;
-}
 
 } // namespace
 
@@ -632,6 +587,13 @@ int main()
           mlFCh(f);
         if (spFCh)
           spFCh(f);
+      };
+      auto mlCK = combined.onCornerKill, spCK = sp->onCornerKill;
+      combined.onCornerKill = [mlCK, spCK](int c) {
+        if (mlCK)
+          mlCK(c);
+        if (spCK)
+          spCK(c); // flags the skirt of the corner vert's leaf
       };
     }
 

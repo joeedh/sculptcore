@@ -50,10 +50,27 @@ namespace sculptcore::mesh {
 
 using litestl::util::SuccessOrError;
 
+/** Why collapseEdge returned false. */
+enum class CollapseRefusal {
+  None,
+  /** The edge id is out of range or freed. */
+  Invalid,
+  /** The endpoints share more neighbours than the edge has faces. */
+  Link,
+  /** The edge belongs to an isolated tetrahedron; collapsing it would duplicate a face. */
+  Tet,
+  /** A surviving face would flip or fold against its neighbour. */
+  Inversion,
+};
+
 /* Created / killed element ids, for the dyntopo driver and the meshlog. */
 struct EdgeCollapseResult {
   int v_keep = ELEM_NONE;
   int killed_vert = ELEM_NONE;
+  CollapseRefusal refusal = CollapseRefusal::None;
+  /** On a Link refusal of an edge with two triangles: the shared neighbours that are not apexes
+   * of those triangles. Each one closes a 3-cycle with the edge that is not a face. */
+  litestl::util::Vector<int, 4> link_extra;
   litestl::util::Vector<int, 8> created_faces;
   litestl::util::Vector<int, 8> created_edges; /* edges incident to v_keep that are new */
   litestl::util::Vector<int, 10> killed_faces;
@@ -113,6 +130,37 @@ static inline int64_t faceKey(const litestl::util::Vector<int, 16> &verts)
   return int64_t(h);
 }
 
+/** True when triangles (a, c, d) and (b, c, d) both exist, i.e. with the triangles (a, b, c) and
+ * (a, b, d) they close an isolated tetrahedron. */
+static inline bool tetOnEdge(Mesh &m, int a, int b, int c, int d)
+{
+  if (m.v.e[c] == ELEM_NONE) {
+    return false;
+  }
+  int ecd = ELEM_NONE;
+  for (int e2 : EdgeOfVertIter(&m, c, m.v.e[c])) {
+    int o = (m.e.vs[e2][0] == c) ? m.e.vs[e2][1] : m.e.vs[e2][0];
+    if (o == d) {
+      ecd = e2;
+      break;
+    }
+  }
+  if (ecd == ELEM_NONE || m.e.c[ecd] == ELEM_NONE) {
+    return false;
+  }
+  bool hasA = false, hasB = false;
+  int c0 = m.e.c[ecd], cc = c0;
+  do {
+    if (m.l.size[m.c.l[cc]] == 3) {
+      int apex = m.c.v[m.c.next[m.c.next[cc]]];
+      hasA |= apex == a;
+      hasB |= apex == b;
+    }
+    cc = m.c.radial_next[cc];
+  } while (cc != c0);
+  return hasA && hasB;
+}
+
 } /* namespace detail_collapse */
 
 /* Collapse `edge`. The vertex at `e.vs[edge][0]` is kept (its position
@@ -138,6 +186,9 @@ collapseEdge(Mesh &m,
   using namespace litestl::util;
 
   if (edge < 0 || edge >= int(m.e.capacity()) || m.e.freemap[edge]) {
+    if (out) {
+      out->refusal = CollapseRefusal::Invalid;
+    }
     return false;
   }
 
@@ -170,19 +221,55 @@ collapseEdge(Mesh &m,
         nbrKeep.add(o);
       }
     }
-    int common = 0;
+    Vector<int, 8> common;
+    int killValence = 0;
     if (m.v.e[v_kill] != ELEM_NONE) {
       for (int e2 : EdgeOfVertIter(&m, v_kill, m.v.e[v_kill])) {
+        killValence++;
         int o = (m.e.vs[e2][0] == v_kill) ? m.e.vs[e2][1] : m.e.vs[e2][0];
         if (o == v_keep) {
           continue;
         }
         if (nbrKeep.contains(o)) {
-          common++;
+          common.append(o);
         }
       }
     }
-    if (common > faceCount) {
+    // The apexes of the edge's two faces, when both are triangles.
+    int apex[2] = {ELEM_NONE, ELEM_NONE};
+    if (faceCount == 2) {
+      int c0 = m.e.c[edge];
+      int cs[2] = {c0, m.c.radial_next[c0]};
+      for (int i = 0; i < 2; i++) {
+        if (m.l.size[m.c.l[cs[i]]] == 3) {
+          apex[i] = m.c.v[m.c.next[m.c.next[cs[i]]]];
+        }
+      }
+      if (apex[0] == ELEM_NONE || apex[1] == ELEM_NONE) {
+        apex[0] = apex[1] = ELEM_NONE;
+      }
+    }
+    if (int(common.size()) > faceCount) {
+      if (out) {
+        out->refusal = CollapseRefusal::Link;
+        if (apex[0] != ELEM_NONE) {
+          for (int o : common) {
+            if (o != apex[0] && o != apex[1]) {
+              out->link_extra.append(o);
+            }
+          }
+        }
+      }
+      return false;
+    }
+    // The count test passes an isolated tetrahedron, whose collapse would stack one
+    // face on another. Its vertices all have valence 3, which keeps the lookup cheap.
+    if (apex[0] != ELEM_NONE && killValence == 3 && int(nbrKeep.size()) == 3 &&
+        detail_collapse::tetOnEdge(m, v_keep, v_kill, apex[0], apex[1]))
+    {
+      if (out) {
+        out->refusal = CollapseRefusal::Tet;
+      }
       return false;
     }
   }
@@ -251,6 +338,9 @@ collapseEdge(Mesh &m,
             float3 nb, na;
             if (faceNormals(f, nb, na)) {
               if (nb.dot(na) < 0.0f) {
+                if (out) {
+                  out->refusal = CollapseRefusal::Inversion;
+                }
                 return false; /* face folds over its own far edge */
               }
               star.append(f);
@@ -312,6 +402,9 @@ collapseEdge(Mesh &m,
           continue;
         }
         if (ents[i].nb.dot(ents[j].nb) >= 0.0f && ents[i].na.dot(ents[j].na) < 0.0f) {
+          if (out) {
+            out->refusal = CollapseRefusal::Inversion;
+          }
           return false;
         }
       }

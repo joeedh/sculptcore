@@ -32,6 +32,7 @@
 #include "mesh/utils/edge_collapse.h"
 #include "mesh/utils/edge_flip.h"
 #include "mesh/utils/edge_split.h"
+#include "mesh/utils/pinch_off.h"
 #include "mesh/utils/triangulate.h"
 #include "mesh/uv_reproject.h"
 
@@ -39,6 +40,7 @@
 
 #include "litestl/math/vector.h"
 #include "litestl/util/alloc.h"
+#include "litestl/util/map.h"
 #include "litestl/util/rand.h"
 #include "litestl/util/set.h"
 #include "litestl/util/span.h"
@@ -46,6 +48,7 @@
 
 #include "platform/time.h"
 
+#include <algorithm>
 #include <cmath>
 #include <cstdint>
 #include <limits>
@@ -183,6 +186,21 @@ struct DynTopoParams {
    * carry one feature type (e.g. a square rim's corners). 0 (default) = off. */
   float feature_corner_angle = 0.0f;
 
+  /** Cut tubes thinned below the detail size. The link condition refuses every collapse of a
+   * 3-vertex ring, which leaves such a tube as a string. When a collapse is refused because the
+   * edge and a third vertex close a 3-cycle that is not a face, and all three edges are shorter
+   * than `pinch_ring_factor` times their collapse threshold, the mesh is cut along that cycle
+   * (mesh/utils/pinch_off.h) and both sides are capped. Off by default, so callers that do not
+   * ask for it (the quad-remesh pre-pass, the tests) are unchanged. */
+  bool pinch_thin = false;
+  float pinch_ring_factor = 1.0f;
+  /** A closed piece left by a cut is deleted when it has at most this many faces and its bounding
+   * box diagonal is at most `cull_size` times the local split threshold. */
+  int cull_max_faces = 64;
+  float cull_size = 2.0f;
+  /** Per-dab cap on cuts. 0 = unlimited. */
+  int max_pinches = 0;
+
   /* Limit-cycle early-out. Stops a dab once it has run this many *consecutive*
    * low-progress rounds (<= 2 split+collapse ops each) — the signature of a
    * split<->collapse ping-pong that never reaches a fixed point: a freshly split
@@ -225,6 +243,11 @@ struct DynTopoStats {
    * A/B number. Stays 0 under Sphere, and under GradedRecursive when nothing
    * outside the seed faces qualified. */
   int graded_hops = 0;
+  /** Tubes cut by pinch_thin, faces deleted as small closed pieces, and valence-3 vertices merged
+   * into the ring around them instead of being cut off. */
+  int pinches = 0;
+  int culled_faces = 0;
+  int trivial_dissolves = 0;
   /* Bailed out of a split<->collapse limit cycle (max_stall_rounds). Native-only
    * diagnostic — deliberately NOT bound in bindings.cc, like DynTopoParams::trace. */
   bool stalled = false;
@@ -593,6 +616,20 @@ inline void lockCollapse(mesh::Mesh &m, int e, GenSet &locked)
       locked.add(o);
     }
   }
+}
+
+/** Returns the edge joining v0 and v1, or ELEM_NONE. */
+inline int edgeBetween(mesh::Mesh &m, int v0, int v1)
+{
+  if (m.v.e[v0] == ELEM_NONE) {
+    return ELEM_NONE;
+  }
+  for (int e : mesh::EdgeOfVertIter(&m, v0, m.v.e[v0])) {
+    if (m.e.vs[e][0] == v1 || m.e.vs[e][1] == v1) {
+      return e;
+    }
+  }
+  return ELEM_NONE;
 }
 
 /* True if none of the verts a candidate would affect are already locked. */
@@ -1035,6 +1072,38 @@ inline DynTopoStats runDyntopoRemesh(mesh::Mesh &m,
     bool split;
   };
 
+  // The [tmin, tmax] band an edge is judged against, by the same rule as the candidate scan
+  // that emits it: the graded seed uses the unscaled band, the sphere scan scales it.
+  auto bandFor = [&](int e, float &tmin, float &tmax) {
+    tmax = p.l_max;
+    tmin = l_min;
+    if (p.region == DynTopoRegion::GradedRecursive) {
+      return;
+    }
+    if (sizeField) {
+      float s = 0.5f * (sizeField->safe_get(m.e.vs[e][0]) + sizeField->safe_get(m.e.vs[e][1]));
+      if (s > 1e-6f) {
+        tmax *= s;
+        tmin *= s;
+      }
+    } else if (p.grade > 0.0f && radius > 0.0f) {
+      float d = (detail::edgeMid(m, e) - center).length();
+      float scale = 1.0f + p.grade * (d / radius);
+      tmax *= scale;
+      tmin *= scale;
+    }
+  };
+
+  struct PinchReq {
+    int a, b;
+    Vector<int, 4> extras;
+    float tmax; // split threshold at the refused edge; scales the cull box
+  };
+  struct CullSeed {
+    int face;
+    float box;
+  };
+
   /* Frontier of verts whose incident edges might have fallen out of band since
    * last round (the previous round's candidate + created-edge endpoints). Round
    * 0 scans the whole mesh once to seed; later rounds stay local to the brush,
@@ -1414,6 +1483,11 @@ inline DynTopoStats runDyntopoRemesh(mesh::Mesh &m,
      *    index is impossible; an op may still no-op (e.g. a collapse the link
      *    condition refuses) — that just doesn't count. */
     int applied = 0;
+    // Pinch-pass ops count as progress but must not reset the stall run, or a large piece that
+    // keeps being cut and never culled would spin to max_rounds.
+    int appliedPinchOps = 0;
+    Vector<PinchReq> pinchReqs;
+    Vector<CullSeed> cullSeeds;
     touched.clear();
 
     /* Verts whose 1-ring the flip sweep must re-examine: only the geometry an
@@ -1476,8 +1550,236 @@ inline DynTopoStats runDyntopoRemesh(mesh::Mesh &m,
             budgetHit = true;
             break; /* stop applying; flip sweep below still runs on what we did */
           }
+        } else if (p.pinch_thin) {
+          // The refused collapse locked both one-rings, so these vertices survive the round.
+          float tmin, tmax;
+          bandFor(c.edge, tmin, tmax);
+          if (res.refusal == mesh::CollapseRefusal::Link && !res.link_extra.isEmpty()) {
+            pinchReqs.append({m.e.vs[c.edge][0], m.e.vs[c.edge][1], res.link_extra, tmax});
+          } else if (res.refusal == mesh::CollapseRefusal::Tet) {
+            // Proven an isolated tetrahedron; hand it to the cull.
+            cullSeeds.append({m.l.f[m.c.l[m.e.c[c.edge]]], p.cull_size * tmax});
+          }
         }
       }
+    }
+
+    // Pinch pass: cut the thin rings refused above, then delete the small closed pieces left.
+    // It runs after the independent set is spent, because a cut rewires faces around the ring's
+    // third vertex, whose neighbours no lock covers.
+    if (p.pinch_thin && (!pinchReqs.isEmpty() || !cullSeeds.isEmpty())) {
+      Map<int, int> copyOf; // ring vertex -> its copy from a cut earlier in this pass
+      Set<int64_t> doneRings;
+      auto edgeBetween = [&](int v0, int v1) { return detail::edgeBetween(m, v0, v1); };
+      auto isFace = [&](int v0, int v1, int v2) {
+        int e = edgeBetween(v0, v1);
+        if (e == ELEM_NONE || m.e.c[e] == ELEM_NONE) {
+          return false;
+        }
+        int c0 = m.e.c[e], cc = c0;
+        do {
+          if (m.l.size[m.c.l[cc]] == 3 && m.c.v[m.c.next[m.c.next[cc]]] == v2) {
+            return true;
+          }
+          cc = m.c.radial_next[cc];
+        } while (cc != c0);
+        return false;
+      };
+      auto live = [&](int v) { return v >= 0 && v < int(m.v.capacity()) && !m.v.freemap[v]; };
+      // Finds a live ring on the original vertices or their copies: three edges, not a face.
+      auto resolveRing = [&](int r0, int r1, int r2, int out3[3]) {
+        int opts[3][2] = {{r0, r0}, {r1, r1}, {r2, r2}};
+        const int *orig[3] = {&r0, &r1, &r2};
+        for (int i = 0; i < 3; i++) {
+          if (copyOf.contains(*orig[i])) {
+            opts[i][1] = copyOf.lookup(*orig[i]);
+          }
+        }
+        for (int k = 0; k < 8; k++) {
+          int v0 = opts[0][k & 1], v1 = opts[1][(k >> 1) & 1], v2 = opts[2][(k >> 2) & 1];
+          if (!live(v0) || !live(v1) || !live(v2)) {
+            continue;
+          }
+          if (edgeBetween(v0, v1) == ELEM_NONE || edgeBetween(v1, v2) == ELEM_NONE ||
+              edgeBetween(v2, v0) == ELEM_NONE || isFace(v0, v1, v2))
+          {
+            continue;
+          }
+          out3[0] = v0, out3[1] = v1, out3[2] = v2;
+          return true;
+        }
+        return false;
+      };
+      // A single valence-3 vertex bounded by the ring, if either side is one.
+      auto trivialSide = [&](const int r[3]) {
+        int e = edgeBetween(r[0], r[1]);
+        int c0 = m.e.c[e], cc = c0;
+        do {
+          int v = m.c.v[m.c.next[m.c.next[cc]]];
+          // Adjacent to all three ring vertices with nothing else: valence exactly 3.
+          if (!detail::vertValenceOver(m, v, 3) && edgeBetween(v, r[2]) != ELEM_NONE) {
+            return v;
+          }
+          cc = m.c.radial_next[cc];
+        } while (cc != c0);
+        return int(ELEM_NONE);
+      };
+
+      for (const PinchReq &rq : pinchReqs) {
+        if (p.max_pinches > 0 && stats.pinches >= p.max_pinches) {
+          break;
+        }
+        for (int extra : rq.extras) {
+          int r[3];
+          if (!resolveRing(rq.a, rq.b, extra, r)) {
+            continue;
+          }
+          int s[3] = {r[0], r[1], r[2]};
+          std::sort(s, s + 3);
+          if (!doneRings.add((int64_t(s[0]) << 42) ^ (int64_t(s[1]) << 21) ^ int64_t(s[2]))) {
+            continue;
+          }
+          bool thin = true;
+          for (int i = 0; i < 3 && thin; i++) {
+            int e = edgeBetween(r[i], r[(i + 1) % 3]);
+            float tmin, tmax;
+            bandFor(e, tmin, tmax);
+            thin = detail::edgeLen(m, e) < p.pinch_ring_factor * tmin;
+          }
+          if (!thin) {
+            continue;
+          }
+          if (feat.active && (feat.isFeatureVert(r[0]) || feat.isFeatureVert(r[1]) ||
+                              feat.isFeatureVert(r[2])))
+          {
+            continue;
+          }
+
+          int v = trivialSide(r);
+          if (v != ELEM_NONE && feat.isFeatureVert(v)) {
+            continue;
+          }
+          if (v != ELEM_NONE) {
+            // Merge the lone vertex into the nearest ring vertex rather than cutting it off; a
+            // spoke longer than the split threshold is real shape and stays.
+            int best = ELEM_NONE;
+            float bestLen = 0.0f;
+            for (int i = 0; i < 3; i++) {
+              int e = edgeBetween(v, r[i]);
+              float L = detail::edgeLen(m, e);
+              if (best == ELEM_NONE || L < bestLen) {
+                best = e;
+                bestLen = L;
+              }
+            }
+            float tmin, tmax;
+            bandFor(best, tmin, tmax);
+            if (bestLen >= tmax) {
+              continue;
+            }
+            mesh::EdgeCollapseResult cres;
+            if (mesh::collapseEdge(
+                    m, best, detail::edgeMid(m, best), 0.5f, &cres, cb, /*prevent_inversion=*/true))
+            {
+              stats.trivial_dissolves++;
+              appliedPinchOps++;
+              addCreated(cres.created_edges);
+              break;
+            }
+            // The merge would fold a face. Cutting instead removes the vertex without moving
+            // anything, and its short spokes keep the cut-off tetrahedron inside the cull limits.
+          }
+
+          mesh::PinchResult pres;
+          if (!mesh::pinchSeparatingTriangle(m, r[0], r[1], r[2], &pres, cb)) {
+            continue;
+          }
+          stats.pinches++;
+          appliedPinchOps++;
+          for (int i = 0; i < 3; i++) {
+            copyOf.add_overwrite(r[i], pres.copies[i]);
+          }
+          addCreated(pres.created_edges);
+          for (int i = 0; i < 3; i++) {
+            touched.add(r[i]);
+            touched.add(pres.copies[i]);
+            nextFrontier.add(r[i]);
+            nextFrontier.add(pres.copies[i]);
+          }
+          cullSeeds.append({pres.cap_l, p.cull_size * rq.tmax});
+          cullSeeds.append({pres.cap_r, p.cull_size * rq.tmax});
+          break;
+        }
+      }
+
+      // Cull: flood each seed's piece; delete it when it closes within the face and size limits.
+      for (const CullSeed &cs : cullSeeds) {
+        if (cs.face < 0 || cs.face >= int(m.f.capacity()) || m.f.freemap[cs.face]) {
+          continue; // an earlier flood already deleted it
+        }
+        Vector<int, 64> faces;
+        Set<int, 64> seenF;
+        Vector<int, 64> stack;
+        seenF.add(cs.face);
+        stack.append(cs.face);
+        math::float3 bmin(std::numeric_limits<float>::max());
+        math::float3 bmax(-std::numeric_limits<float>::max());
+        bool keep = false;
+        while (!stack.isEmpty() && !keep) {
+          int f = stack.pop_back();
+          faces.append(f);
+          if (int(faces.size()) > p.cull_max_faces) {
+            keep = true;
+            break;
+          }
+          int c0 = m.l.c[m.f.l[f]], cc = c0;
+          do {
+            bmin.min(m.v.co[m.c.v[cc]]);
+            bmax.max(m.v.co[m.c.v[cc]]);
+            int rn = m.c.radial_next[cc];
+            if (rn == cc || m.c.radial_next[rn] != cc) {
+              keep = true; // boundary or non-manifold edge: not a closed piece
+              break;
+            }
+            int g = m.l.f[m.c.l[rn]];
+            if (seenF.add(g)) {
+              stack.append(g);
+            }
+            cc = m.c.next[cc];
+          } while (cc != c0);
+          if ((bmax - bmin).length() > cs.box) {
+            keep = true;
+          }
+        }
+        if (keep) {
+          continue;
+        }
+        Set<int, 64> edges, verts;
+        for (int f : faces) {
+          int c0 = m.l.c[m.f.l[f]], cc = c0;
+          do {
+            edges.add(m.c.e[cc]);
+            verts.add(m.c.v[cc]);
+            cc = m.c.next[cc];
+          } while (cc != c0);
+        }
+        for (int f : faces) {
+          m.kill_face(f, cb);
+        }
+        for (int e : edges) {
+          if (!m.e.freemap[e] && m.e.c[e] == ELEM_NONE) {
+            m.kill_edge(e, cb);
+          }
+        }
+        for (int v : verts) {
+          if (!m.v.freemap[v] && m.v.e[v] == ELEM_NONE) {
+            m.kill_vertex(v, cb);
+          }
+        }
+        stats.culled_faces += int(faces.size());
+        appliedPinchOps++;
+      }
+      applied += appliedPinchOps;
     }
 
     /* Under GradedRecursive the outward splits land outside the dab sphere, so
@@ -1638,7 +1940,7 @@ inline DynTopoStats runDyntopoRemesh(mesh::Mesh &m,
      * above), so bail before the dab spins to max_rounds. See max_stall_rounds. */
     if (p.max_stall_rounds > 0) {
       constexpr int kStallOpMax = 2; /* matches dyntopo_trace's churn_op_max */
-      stallRun = applied <= kStallOpMax ? stallRun + 1 : 0;
+      stallRun = applied - appliedPinchOps <= kStallOpMax ? stallRun + 1 : 0;
       if (stallRun >= p.max_stall_rounds) {
         stats.stalled = true;
         stats.capped = true;
@@ -1654,7 +1956,9 @@ inline DynTopoStats runDyntopoRemesh(mesh::Mesh &m,
    * derived poly-group / UV-chart flags + per-vert class recomputed. Flag it; the
    * caller folds it in (recomputeDirty) at the next dab / stroke end while links
    * are live. */
-  if (feat.active && (stats.splits + stats.collapses) > 0) {
+  if (feat.active && (stats.splits + stats.collapses + stats.pinches + stats.trivial_dissolves +
+                      stats.culled_faces) > 0)
+  {
     m.boundaryDirty = true;
   }
 

@@ -1962,6 +1962,13 @@ public:
         if (spFCh)
           spFCh(f); /* tree re-flags the owning leaf (in-place flip/split) */
       };
+      auto mlCK = combined.onCornerKill, spCK = sp->onCornerKill;
+      combined.onCornerKill = [mlCK, spCK](int c) {
+        if (mlCK)
+          mlCK(c);
+        if (spCK)
+          spCK(c); // flags the skirt of the corner vert's leaf
+      };
       cb = &combined;
     } else {
       cb = ml ? ml : sp;

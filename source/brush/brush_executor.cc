@@ -304,7 +304,9 @@ CommandExecutor::applyResolvedProgram(BrushProgram *program,
         p.smooth_lambda > 1 || !std::isfinite(p.feature_corner_angle) ||
         p.feature_corner_angle < 0 || p.max_rounds < 0 || p.max_splits < 0 ||
         p.max_collapses < 0 || p.max_stall_rounds < 0 || int(p.mode) < 0 ||
-        int(p.mode) > 2)
+        int(p.mode) > 2 || !std::isfinite(p.pinch_ring_factor) || p.pinch_ring_factor < 0 ||
+        !std::isfinite(p.cull_size) || p.cull_size < 0 || p.cull_max_faces < 0 ||
+        p.max_pinches < 0)
       return fail(PropError::ERROR_INVALID_VALUE, "dyntopo settings");
   }
   if (!program->commands.size()) {

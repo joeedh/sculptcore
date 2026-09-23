@@ -207,9 +207,13 @@ it (see §6) don't support free-form collapse.
   becomes two. Interpolate attrs at `t = 0.5`. Mild conflict surface: two edges
   of the *same* triangle split simultaneously conflict.
 - **Edge collapse**: merge `v_kill` into `v_keep` via `collapseEdge`; must
-  satisfy the **link condition** (the intersection of the two endpoints'
-  vertex-link must be exactly the two opposite verts) to stay manifold.
-  Adjacent collapses conflict heavily.
+  satisfy the **link condition** to stay manifold. `collapseEdge` checks it in
+  two parts. The endpoints may share no more neighbours than the edge has faces,
+  which is a count, not a set comparison. A separate guard refuses an edge of an
+  isolated tetrahedron, whose shared neighbours pass the count but whose
+  collapse would stack one face on another. A refusal reports its reason
+  (`CollapseRefusal`), and a link refusal lists the shared neighbours that are
+  not apexes. Adjacent collapses conflict heavily.
 - **Edge flip** — **load-bearing for performance, not optional** (see the post-M7
   banner). A length-criterion flip (flip the shared edge to its shorter diagonal
   when the quad stays convex) run each round breaks the split-spoke cascade; M7.2

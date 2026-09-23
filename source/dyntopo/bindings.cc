@@ -62,6 +62,11 @@ litestl::binding::types::Struct<DynTopoParams> *DynTopoParams::defineBindings()
   BIND_STRUCT_MEMBER(st, smooth_lambda);
   BIND_STRUCT_MEMBER(st, reproject_uvs);
   BIND_STRUCT_MEMBER(st, preserve_features);
+  BIND_STRUCT_MEMBER(st, pinch_thin);
+  BIND_STRUCT_MEMBER(st, pinch_ring_factor);
+  BIND_STRUCT_MEMBER(st, cull_max_faces);
+  BIND_STRUCT_MEMBER(st, cull_size);
+  BIND_STRUCT_MEMBER(st, max_pinches);
 
   return st;
 }
@@ -83,6 +88,9 @@ litestl::binding::types::Struct<DynTopoStats> *DynTopoStats::defineBindings()
   BIND_STRUCT_MEMBER(st, capped);
   BIND_STRUCT_MEMBER(st, budget_hit);
   BIND_STRUCT_MEMBER(st, graded_hops);
+  BIND_STRUCT_MEMBER(st, pinches);
+  BIND_STRUCT_MEMBER(st, culled_faces);
+  BIND_STRUCT_MEMBER(st, trivial_dissolves);
 
   return st;
 }

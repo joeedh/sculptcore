@@ -441,6 +441,18 @@ struct SpatialTree {
 
   void add_face(int f, bool search_node = true)
   {
+    add_face_impl(f, search_node, false);
+  }
+
+  /** Adds face `f` like add_face, but skips the near-zero-area rejection on the root-descent
+   * path. Undo uses it to re-own faces that were in the tree before the step. */
+  void restore_face(int f)
+  {
+    add_face_impl(f, true, true);
+  }
+
+  void add_face_impl(int f, bool search_node, bool force)
+  {
     mesh::FaceProxy face(m, f);
 
     // ensure face has empty node ref
@@ -486,7 +498,7 @@ struct SpatialTree {
       }
 
       // XXX magic number
-      if (area < 0.0000001) {
+      if (!force && area < 0.0000001) {
         sc_napi_logf("got a zero or near zero area face at %d, area=%lf\n", f, area);
         ok = false;
       }
